@@ -3,7 +3,6 @@ import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
-# Logging setup
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -13,7 +12,6 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
-# Lazy import groq to catch errors clearly
 try:
     from groq import Groq
     client = Groq(api_key=GROQ_API_KEY)
@@ -22,7 +20,6 @@ except Exception as e:
     logger.error(f"Failed to initialize Groq: {e}")
     raise
 
-# Store conversation history per user
 conversation_history = {}
 
 SYSTEM_PROMPT = """You are a helpful assistant replying on behalf of the user.
@@ -30,27 +27,31 @@ Be concise, friendly, and natural. Keep replies short unless asked for detail.""
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Support both regular and business messages
+    # Handle both regular and business messages
     message = update.message or update.business_message
     if not message or not message.text:
         return
+
+    # Ignore messages sent by the account owner themselves
+    if update.business_message and message.from_user and message.from_user.is_bot is False:
+        # Check if sender is the business owner — skip replying to self
+        me = await context.bot.get_me()
+        if message.from_user.id == me.id:
+            return
 
     user_id = message.chat_id
     user_msg = message.text
 
     logger.info(f"Message from {user_id}: {user_msg}")
 
-    # Init history for new users
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
-    # Append user message
     conversation_history[user_id].append({
         "role": "user",
         "content": user_msg
     })
 
-    # Keep last 10 messages only
     if len(conversation_history[user_id]) > 10:
         conversation_history[user_id] = conversation_history[user_id][-10:]
 
@@ -64,18 +65,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reply = response.choices[0].message.content
 
-        # Append assistant reply to history
         conversation_history[user_id].append({
             "role": "assistant",
             "content": reply
         })
 
         logger.info(f"Reply to {user_id}: {reply}")
-        await message.reply_text(reply)
+
+        # Business messages need business_connection_id to reply
+        if update.business_message:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=reply,
+                business_connection_id=update.business_message.business_connection_id
+            )
+        else:
+            await message.reply_text(reply)
 
     except Exception as e:
         logger.error(f"Groq error: {e}")
-        await message.reply_text(f"⚠️ Error: {str(e)}")
 
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -95,17 +103,22 @@ async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Commands
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("reset", handle_reset))
 
-    # Regular chat messages
+    # Regular messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Business chat messages
+    # Business messages
     app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_message))
 
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(
+        allowed_updates=[
+            Update.MESSAGE,
+            Update.BUSINESS_MESSAGE,
+            Update.BUSINESS_CONNECTION,
+        ]
+    )
 
 
 if __name__ == "__main__":
