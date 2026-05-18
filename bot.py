@@ -4,8 +4,7 @@ import asyncio
 import requests
 import tempfile
 from datetime import datetime, timezone
-
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder,
@@ -15,12 +14,12 @@ from telegram.ext import (
     ContextTypes,
 )
 from telegram.error import TelegramError, BadRequest
-
 from groq import Groq
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 # ── Logging ───────────────────────────────────────────────────────────────────
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -30,6 +29,7 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 logger = logging.getLogger("mocco")
 
 # ── Config ────────────────────────────────────────────────────────────────────
+
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 SERPER_API_KEY = os.environ["SERPER_API_KEY"]
@@ -40,11 +40,10 @@ BOT_ID = int(os.environ.get("BOT_ID", "8877277512"))
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-
 # ── Database ──────────────────────────────────────────────────────────────────
+
 def get_db():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-
 
 def init_db():
     with get_db() as conn:
@@ -73,9 +72,8 @@ def init_db():
                 CREATE INDEX IF NOT EXISTS idx_messages_user_id
                 ON messages(user_id, id);
             """)
-        conn.commit()
+            conn.commit()
     logger.info("Database initialized")
-
 
 def ensure_user(user_id, username=None, first_name=None):
     try:
@@ -88,10 +86,9 @@ def ensure_user(user_id, username=None, first_name=None):
                     SET username = EXCLUDED.username,
                         first_name = EXCLUDED.first_name
                 """, (user_id, username, first_name))
-            conn.commit()
+                conn.commit()
     except Exception as e:
         logger.error(f"ensure_user failed: {e}")
-
 
 def is_blacklisted(user_id):
     try:
@@ -106,7 +103,6 @@ def is_blacklisted(user_id):
     except Exception as e:
         logger.error(f"is_blacklisted failed: {e}")
         return False
-
 
 def get_history(user_id, limit=10):
     try:
@@ -124,7 +120,6 @@ def get_history(user_id, limit=10):
         logger.error(f"get_history failed: {e}")
         return []
 
-
 def save_message(user_id, role, content):
     try:
         with get_db() as conn:
@@ -137,20 +132,18 @@ def save_message(user_id, role, content):
                     UPDATE users SET message_count = message_count + 1
                     WHERE user_id = %s
                 """, (user_id,))
-            conn.commit()
+                conn.commit()
     except Exception as e:
         logger.error(f"save_message failed: {e}")
-
 
 def clear_history(user_id):
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM messages WHERE user_id = %s", (user_id,))
-            conn.commit()
+                conn.commit()
     except Exception as e:
         logger.error(f"clear_history failed: {e}")
-
 
 def get_custom_prompt(user_id):
     try:
@@ -166,7 +159,6 @@ def get_custom_prompt(user_id):
         logger.error(f"get_custom_prompt failed: {e}")
         return None
 
-
 def set_custom_prompt(user_id, prompt):
     try:
         with get_db() as conn:
@@ -175,10 +167,9 @@ def set_custom_prompt(user_id, prompt):
                     "UPDATE users SET custom_prompt = %s WHERE user_id = %s",
                     (prompt, user_id),
                 )
-            conn.commit()
+                conn.commit()
     except Exception as e:
         logger.error(f"set_custom_prompt failed: {e}")
-
 
 def get_stats():
     try:
@@ -197,7 +188,6 @@ def get_stats():
         logger.error(f"get_stats failed: {e}")
         return 0, 0, 0
 
-
 def set_blacklist(user_id, value: bool):
     try:
         with get_db() as conn:
@@ -208,14 +198,14 @@ def set_blacklist(user_id, value: bool):
                     ON CONFLICT (user_id) DO UPDATE
                     SET is_blacklisted = EXCLUDED.is_blacklisted
                 """, (user_id, value))
-            conn.commit()
-        return True
+                conn.commit()
+                return True
     except Exception as e:
         logger.error(f"set_blacklist failed: {e}")
         return False
 
-
 # ── System Prompt ─────────────────────────────────────────────────────────────
+
 def get_system_prompt(user_id=None):
     today = datetime.now(timezone.utc).strftime("%B %d, %Y")
     base = (
@@ -232,8 +222,8 @@ def get_system_prompt(user_id=None):
             base += f"\n\nAdditional instructions: {custom}"
     return base
 
-
 # ── Web Search ────────────────────────────────────────────────────────────────
+
 def web_search(query):
     try:
         r = requests.post(
@@ -259,8 +249,8 @@ def web_search(query):
         logger.error(f"Search error: {e}")
         return "Search failed."
 
-
 # ── Image Generation ──────────────────────────────────────────────────────────
+
 def generate_image(prompt):
     try:
         r = requests.post(
@@ -290,19 +280,17 @@ def generate_image(prompt):
         logger.error(f"Image gen error: {e}")
         return None
 
-
 # ── AI Reply ──────────────────────────────────────────────────────────────────
+
 SEARCH_KEYWORDS = [
     "latest", "news", "today", "current", "price", "score",
     "weather", "who won", "what happened", "right now", "live",
     "stock", "exchange rate",
 ]
 
-
 def needs_search(text: str) -> bool:
     t = text.lower()
     return any(k in t for k in SEARCH_KEYWORDS)
-
 
 def get_ai_reply(user_id, user_msg):
     history = get_history(user_id)
@@ -327,9 +315,9 @@ def get_ai_reply(user_id, user_msg):
         logger.error(f"Groq error: {e}")
         return "⚠️ Sorry, I couldn't generate a reply right now. Try again."
 
-
 # ── Safe Reply Helper ─────────────────────────────────────────────────────────
-async def safe_reply(msg, text, parse_mode=None, business_connection_id=None, bot=None):
+
+async def safe_reply(msg, text, parse_mode=None, business_connection_id=None, bot=None, reply_markup=None):
     try:
         if business_connection_id and bot:
             return await bot.send_message(
@@ -337,8 +325,9 @@ async def safe_reply(msg, text, parse_mode=None, business_connection_id=None, bo
                 text=text,
                 parse_mode=parse_mode,
                 business_connection_id=business_connection_id,
+                reply_markup=reply_markup,
             )
-        return await msg.reply_text(text, parse_mode=parse_mode)
+        return await msg.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
     except BadRequest as e:
         logger.warning(f"Markdown failed, sending plain: {e}")
         try:
@@ -347,15 +336,16 @@ async def safe_reply(msg, text, parse_mode=None, business_connection_id=None, bo
                     chat_id=msg.chat_id,
                     text=text,
                     business_connection_id=business_connection_id,
+                    reply_markup=reply_markup,
                 )
-            return await msg.reply_text(text)
+            return await msg.reply_text(text, reply_markup=reply_markup)
         except Exception as e2:
             logger.error(f"safe_reply fallback failed: {e2}")
     except TelegramError as e:
         logger.error(f"Telegram error in safe_reply: {e}")
 
-
 # ── Core Handler ──────────────────────────────────────────────────────────────
+
 async def process_message(update, context, msg, business_connection_id=None):
     if not msg or not msg.text:
         return
@@ -401,31 +391,44 @@ async def process_message(update, context, msg, business_connection_id=None):
             bot=context.bot,
         )
 
-
 async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.business_message
     if msg:
         await process_message(update, context, msg, msg.business_connection_id)
 
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await process_message(update, context, update.message)
 
+# ── Menu Keyboard ─────────────────────────────────────────────────────────────
 
-# ── Commands ──────────────────────────────────────────────────────────────────
-HELP_TEXT = (
-    "👋 Hi! I'm *Mocco*, your AI assistant.\n\n"
-    "*Commands:*\n"
-    "/reset — Clear conversation\n"
-    "/search <query> — Search the web\n"
-    "/imagine <prompt> — Generate an image\n"
-    "/summarize <text> — Summarize text\n"
-    "/translate <lang> <text> — Translate text\n"
-    "/setprompt <text> — Set custom personality\n"
-    "/clearprompt — Remove custom personality\n"
-    "/help — Show this menu"
+WELCOME_TEXT = (
+    "👋 Hi, I'm *Mocco*.\n"
+    "How can I help you today?\n\n"
+    "You can ask me anything — coding, writing, ideas, learning, "
+    "productivity, research, or everyday questions."
 )
 
+def build_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔄 Reset Chat",       switch_inline_query_current_chat="/reset"),
+            InlineKeyboardButton("🔍 Search Web",        switch_inline_query_current_chat="/search "),
+        ],
+        [
+            InlineKeyboardButton("🎨 Generate Image",    switch_inline_query_current_chat="/imagine "),
+            InlineKeyboardButton("📝 Summarize",         switch_inline_query_current_chat="/summarize "),
+        ],
+        [
+            InlineKeyboardButton("🌐 Translate",         switch_inline_query_current_chat="/translate "),
+            InlineKeyboardButton("🧠 Set Personality",   switch_inline_query_current_chat="/setprompt "),
+        ],
+        [
+            InlineKeyboardButton("🗑️ Clear Personality", switch_inline_query_current_chat="/clearprompt"),
+            InlineKeyboardButton("❓ Help",              switch_inline_query_current_chat="/help"),
+        ],
+    ])
+
+# ── Commands ──────────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -433,15 +436,21 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     ensure_user(msg.from_user.id, msg.from_user.username, msg.from_user.first_name)
     clear_history(msg.from_user.id)
-    await safe_reply(msg, HELP_TEXT, parse_mode="Markdown")
-
+    await msg.reply_text(
+        WELCOME_TEXT,
+        parse_mode="Markdown",
+        reply_markup=build_menu_keyboard(),
+    )
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
         return
-    await safe_reply(msg, HELP_TEXT, parse_mode="Markdown")
-
+    await msg.reply_text(
+        WELCOME_TEXT,
+        parse_mode="Markdown",
+        reply_markup=build_menu_keyboard(),
+    )
 
 async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -449,7 +458,6 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     clear_history(msg.from_user.id)
     await safe_reply(msg, "🔄 Conversation cleared!")
-
 
 async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -465,7 +473,6 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
     results = await asyncio.to_thread(web_search, query)
     await safe_reply(msg, f"🔍 *Search results for:* {query}\n\n{results}", parse_mode="Markdown")
-
 
 async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -491,7 +498,6 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_reply(msg, "❌ Could not send image.")
     else:
         await safe_reply(msg, "❌ Image generation failed. Try again later.")
-
 
 async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -521,7 +527,6 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"summarize failed: {e}")
         await safe_reply(msg, "❌ Could not summarize.")
-
 
 async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -559,7 +564,6 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"translate failed: {e}")
         await safe_reply(msg, "❌ Could not translate.")
 
-
 async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -572,7 +576,6 @@ async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_custom_prompt(msg.from_user.id, prompt)
     await safe_reply(msg, "✅ Custom personality set!")
 
-
 async def cmd_clearprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -580,8 +583,8 @@ async def cmd_clearprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_custom_prompt(msg.from_user.id, None)
     await safe_reply(msg, "✅ Custom personality removed!")
 
-
 # ── Voice Messages ────────────────────────────────────────────────────────────
+
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or not msg.voice:
@@ -592,6 +595,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ensure_user(user.id, user.username, user.first_name)
+
     if is_blacklisted(user.id):
         return
 
@@ -617,15 +621,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         transcription = await asyncio.to_thread(transcribe)
         user_msg = (transcription or "").strip()
+
         if not user_msg:
             await safe_reply(msg, "❌ Could not understand audio.")
             return
 
         await safe_reply(msg, f"🎤 *You said:* {user_msg}", parse_mode="Markdown")
+
         reply = await asyncio.to_thread(get_ai_reply, user.id, user_msg)
         save_message(user.id, "user", user_msg)
         save_message(user.id, "assistant", reply)
         await safe_reply(msg, reply)
+
     except Exception as e:
         logger.exception(f"Voice error: {e}")
         await safe_reply(msg, "❌ Could not process voice message.")
@@ -636,11 +643,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except OSError:
                 pass
 
-
 # ── Admin Commands ────────────────────────────────────────────────────────────
+
 def is_owner(update: Update) -> bool:
     return update.effective_user and update.effective_user.id == OWNER_ID
-
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -655,7 +661,6 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🚫 Blacklisted: {blk}",
         parse_mode="Markdown",
     )
-
 
 async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -674,7 +679,6 @@ async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await safe_reply(msg, "❌ Failed to blacklist user.")
 
-
 async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or not is_owner(update):
@@ -691,7 +695,6 @@ async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(msg, f"✅ User `{target_id}` unblacklisted.", parse_mode="Markdown")
     else:
         await safe_reply(msg, "❌ Failed to update user.")
-
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -710,6 +713,7 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"broadcast fetch failed: {e}")
         await safe_reply(msg, "❌ Failed to fetch users.")
         return
+
     sent = 0
     failed = 0
     for u in users:
@@ -718,12 +722,14 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sent += 1
         except Exception:
             failed += 1
+
     await safe_reply(msg, f"✅ Sent: {sent} | Failed: {failed}")
 
-
 # ── Main ──────────────────────────────────────────────────────────────────────
+
 def main():
     init_db()
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
@@ -745,7 +751,6 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-
 
 if __name__ == "__main__":
     main()
