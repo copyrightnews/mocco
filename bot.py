@@ -2,7 +2,6 @@ import os
 import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
-from groq import Groq
 
 # Logging setup
 logging.basicConfig(
@@ -14,7 +13,14 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
-client = Groq(api_key=GROQ_API_KEY)
+# Lazy import groq to catch errors clearly
+try:
+    from groq import Groq
+    client = Groq(api_key=GROQ_API_KEY)
+    logger.info("Groq client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Groq: {e}")
+    raise
 
 # Store conversation history per user
 conversation_history = {}
@@ -24,8 +30,13 @@ Be concise, friendly, and natural. Keep replies short unless asked for detail.""
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.chat_id
-    user_msg = update.message.text
+    # Support both regular and business messages
+    message = update.message or update.business_message
+    if not message or not message.text:
+        return
+
+    user_id = message.chat_id
+    user_msg = message.text
 
     logger.info(f"Message from {user_id}: {user_msg}")
 
@@ -60,28 +71,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         })
 
         logger.info(f"Reply to {user_id}: {reply}")
-        await update.message.reply_text(reply)
+        await message.reply_text(reply)
 
     except Exception as e:
         logger.error(f"Groq error: {e}")
-        await update.message.reply_text(f"⚠️ Error: {str(e)}")
+        await message.reply_text(f"⚠️ Error: {str(e)}")
 
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conversation_history.pop(update.message.chat_id, None)
-    await update.message.reply_text("Hi! I'm an AI assistant. How can I help you?")
+    message = update.message or update.business_message
+    if message:
+        conversation_history.pop(message.chat_id, None)
+        await message.reply_text("Hi! I'm Mocco, your AI assistant. How can I help you?")
 
 
 async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conversation_history.pop(update.message.chat_id, None)
-    await update.message.reply_text("🔄 Conversation reset. Start fresh!")
+    message = update.message or update.business_message
+    if message:
+        conversation_history.pop(message.chat_id, None)
+        await message.reply_text("🔄 Conversation reset. Start fresh!")
 
 
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+    # Commands
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("reset", handle_reset))
+
+    # Regular chat messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Business chat messages
+    app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_message))
+
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
