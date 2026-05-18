@@ -1,7 +1,8 @@
 import os
 import logging
+from datetime import datetime
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes, TypeHandler
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -22,10 +23,16 @@ except Exception as e:
 
 conversation_history = {}
 
-SYSTEM_PROMPT = """You are a helpful assistant replying on behalf of the user.
-Be concise, friendly, and natural. Keep replies short unless asked for detail."""
+BOT_ID = 8877277512  # moccoaibot — skip own messages
 
-BOT_ID = 8877277512  # moccoaibot ID — skip messages from self
+
+def get_system_prompt():
+    today = datetime.utcnow().strftime("%B %d, %Y")
+    return f"""You are Mocco, a smart and helpful AI assistant replying on behalf of the user.
+Today's date is {today}. You are fully aware of the current date and time.
+Be concise, friendly, and natural. Keep replies short unless asked for detail.
+Never claim your knowledge is limited to 2023. You know the current date is {today}.
+If asked about real-time data like live scores, prices, or breaking news, say you don't have live internet access but offer what you know."""
 
 
 async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -33,7 +40,6 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
     if not msg or not msg.text:
         return
 
-    # Skip messages sent by the bot itself
     if msg.from_user and msg.from_user.id == BOT_ID:
         logger.info("Skipping own message")
         return
@@ -57,8 +63,8 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history[user_id],
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "system", "content": get_system_prompt()}] + conversation_history[user_id],
             max_tokens=500,
             temperature=0.7
         )
@@ -70,7 +76,7 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
             "content": reply
         })
 
-        logger.info(f"Sending reply to {user_id}: {reply}")
+        logger.info(f"Reply to {user_id}: {reply}")
 
         await context.bot.send_message(
             chat_id=user_id,
@@ -90,6 +96,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = msg.chat_id
     user_msg = msg.text
 
+    logger.info(f"Regular message from {user_id}: {user_msg}")
+
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
@@ -103,8 +111,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history[user_id],
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "system", "content": get_system_prompt()}] + conversation_history[user_id],
             max_tokens=500,
             temperature=0.7
         )
@@ -141,11 +149,7 @@ def main():
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("reset", handle_reset))
-
-    # Separate handler for business messages
     app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_business_message))
-
-    # Regular messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
