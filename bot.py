@@ -456,16 +456,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Welcome & Menu ────────────────────────────────────────────────────────────
 
 WELCOME_TEXT = (
-    "👋 Hi, I'm *Mocco* — your smart AI assistant.\n"
+    "Hi, I'm *Mocco* — your smart AI assistant.\n"
     "How can I help you today?\n\n"
     "I can help you with:\n"
-    "• 💻 Coding & debugging\n"
-    "• ✍️ Writing & editing\n"
-    "• 🔍 Web search & research\n"
-    "• 🌐 Translation & summarization\n"
-    "• 🎨 Image generation\n"
-    "• 🧠 Ideas, planning & problem solving\n"
-    "• 📚 Learning & everyday questions\n\n"
+    "• Coding & debugging\n"
+    "• Writing & editing\n"
+    "• Web search & research\n"
+    "• Translation & summarization\n"
+    "• Image generation\n"
+    "• Ideas, planning & problem solving\n"
+    "• Learning & everyday questions\n\n"
     "Just type your question, or tap a button below."
 )
 
@@ -475,12 +475,12 @@ HELP_TEXT = (
     "💬 *Chat*\n"
     "Just type anything — I'll reply intelligently.\n"
     "I remember your last 14 messages for context.\n\n"
-    "🔄 `/reset`\n"
+    "♻️ `/reset`\n"
     "Clear your conversation and start fresh.\n\n"
     "🔍 `/search <query>`\n"
     "Search the web for current information.\n"
     "_Example: `/search latest AI news 2025`_\n\n"
-    "🎨 `/imagine <prompt>`\n"
+    "❇️ `/imagine <prompt>`\n"
     "Generate an AI image from your description.\n"
     "_Example: `/imagine a futuristic city at night, cinematic`_\n\n"
     "📝 `/summarize <text>`\n"
@@ -504,11 +504,11 @@ HELP_TEXT = (
 def build_menu_keyboard():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔄 Reset Chat",       switch_inline_query_current_chat="/reset"),
+            InlineKeyboardButton("♻️ Reset Chat",       switch_inline_query_current_chat="/reset"),
             InlineKeyboardButton("🔍 Search Web",        switch_inline_query_current_chat="/search "),
         ],
         [
-            InlineKeyboardButton("🎨 Generate Image",    switch_inline_query_current_chat="/imagine "),
+            InlineKeyboardButton("❇️ Generate Image",    switch_inline_query_current_chat="/imagine "),
             InlineKeyboardButton("📝 Summarize",         switch_inline_query_current_chat="/summarize "),
         ],
         [
@@ -516,8 +516,8 @@ def build_menu_keyboard():
             InlineKeyboardButton("🧠 Set Personality",   switch_inline_query_current_chat="/setprompt "),
         ],
         [
-            InlineKeyboardButton("🗑️ Clear Personality", switch_inline_query_current_chat="/clearprompt"),
-            InlineKeyboardButton("📖 Full Guide",        switch_inline_query_current_chat="/help"),
+            InlineKeyboardButton("🚫 Clear Personality", switch_inline_query_current_chat="/clearprompt"),
+            InlineKeyboardButton("❔ Full Guide",        switch_inline_query_current_chat="/help"),
         ],
     ])
 
@@ -552,7 +552,7 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_history(msg.from_user.id)
     await safe_reply(
         msg,
-        "🔄 *Conversation cleared.*\n"
+        "🚫 *Conversation cleared.*\n"
         "Starting fresh — what would you like to talk about?",
         parse_mode="Markdown",
     )
@@ -592,7 +592,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not prompt:
         await safe_reply(
             msg,
-            "🎨 *Image Generation*\n\n"
+            "❇️ *Image Generation*\n\n"
             "Describe the image you want to generate.\n"
             "_Usage:_ `/imagine <description>`\n\n"
             "*Tips for better results:*\n"
@@ -606,7 +606,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await safe_reply(
         msg,
-        f"🎨 Generating:\n_\"{prompt}\"_\n\nThis takes up to 30 seconds...",
+        f"❇️ Generating:\n_\"{prompt}\"_\n\nThis takes up to 30 seconds...",
         parse_mode="Markdown",
     )
     try:
@@ -620,7 +620,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_photo(
                 chat_id=msg.chat_id,
                 photo=url,
-                caption=f"🎨 {prompt[:900]}",
+                caption=f"❇️ {prompt[:900]}",
             )
         except TelegramError as e:
             logger.error(f"send_photo failed: {e}")
