@@ -3,6 +3,8 @@ import logging
 import asyncio
 import requests
 import tempfile
+import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
@@ -16,6 +18,7 @@ from telegram.ext import (
 from telegram.error import TelegramError, BadRequest
 from groq import Groq
 import psycopg2
+from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -40,23 +43,87 @@ BOT_ID           = int(os.environ.get("BOT_ID",   "8877277512"))
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# ── Database ──────────────────────────────────────────────────────────────────
+MAX_MSG_LEN        = 4000   # Telegram limit is 4096, keep buffer
+RATE_LIMIT_SECONDS = 3      # Min seconds between messages per user
+BROADCAST_CHUNK    = 25     # Concurrent sends during broadcast
 
-def get_db():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+# ── Rate Limiter ──────────────────────────────────────────────────────────────
+
+_last_msg: dict[int, float] = defaultdict(float)
+
+def is_rate_limited(user_id: int) -> bool:
+    now = time.monotonic()
+    if now - _last_msg[user_id] < RATE_LIMIT_SECONDS:
+        return True
+    _last_msg[user_id] = now
+    return False
+
+# ── Message Splitter ──────────────────────────────────────────────────────────
+
+def split_message(text: str, limit: int = MAX_MSG_LEN) -> list[str]:
+    """Split a long message into chunks under the Telegram limit."""
+    if len(text) <= limit:
+        return [text]
+
+    chunks = []
+    while len(text) > limit:
+        split_at = text.rfind("\n", 0, limit)
+        if split_at == -1:
+            split_at = text.rfind(" ", 0, limit)
+        if split_at == -1:
+            split_at = limit
+        chunks.append(text[:split_at].strip())
+        text = text[split_at:].strip()
+
+    if text:
+        chunks.append(text)
+
+    return chunks
+
+# ── Database (Connection Pool) ────────────────────────────────────────────────
+
+_pool: pool.ThreadedConnectionPool | None = None
+
+def get_pool() -> pool.ThreadedConnectionPool:
+    global _pool
+    if _pool is None:
+        _pool = pool.ThreadedConnectionPool(
+            minconn=1,
+            maxconn=10,
+            dsn=DATABASE_URL,
+            cursor_factory=RealDictCursor,
+        )
+        logger.info("DB connection pool created (1–10 connections)")
+    return _pool
+
+class db_conn:
+    """Context manager: borrows a connection from the pool, always returns it."""
+    def __enter__(self):
+        self.conn = get_pool().getconn()
+        return self.conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+        get_pool().putconn(self.conn)
+        return False  # re-raise any exception
+
 
 def init_db():
-    with get_db() as conn:
+    with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    user_id       BIGINT PRIMARY KEY,
-                    username      TEXT,
-                    first_name    TEXT,
-                    custom_prompt TEXT,
+                    user_id        BIGINT PRIMARY KEY,
+                    username       TEXT,
+                    first_name     TEXT,
+                    custom_prompt  TEXT,
                     is_blacklisted BOOLEAN DEFAULT FALSE,
                     message_count  INTEGER DEFAULT 0,
-                    created_at    TIMESTAMP DEFAULT NOW()
+                    created_at     TIMESTAMP DEFAULT NOW()
                 );
             """)
             cur.execute("""
@@ -75,9 +142,10 @@ def init_db():
             conn.commit()
     logger.info("Database initialized")
 
+
 def ensure_user(user_id, username=None, first_name=None):
     try:
-        with get_db() as conn:
+        with db_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO users (user_id, username, first_name)
@@ -90,20 +158,25 @@ def ensure_user(user_id, username=None, first_name=None):
     except Exception as e:
         logger.error(f"ensure_user failed: {e}")
 
-def is_blacklisted(user_id):
+
+def is_blacklisted(user_id) -> bool:
     try:
-        with get_db() as conn:
+        with db_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT is_blacklisted FROM users WHERE user_id = %s", (user_id,))
+                cur.execute(
+                    "SELECT is_blacklisted FROM users WHERE user_id = %s",
+                    (user_id,),
+                )
                 row = cur.fetchone()
                 return bool(row and row["is_blacklisted"])
     except Exception as e:
         logger.error(f"is_blacklisted failed: {e}")
         return False
 
-def get_history(user_id, limit=14):
+
+def get_history(user_id, limit=14) -> list:
     try:
-        with get_db() as conn:
+        with db_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT role, content FROM messages
@@ -117,9 +190,10 @@ def get_history(user_id, limit=14):
         logger.error(f"get_history failed: {e}")
         return []
 
+
 def save_message(user_id, role, content):
     try:
-        with get_db() as conn:
+        with db_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO messages (user_id, role, content)
@@ -133,29 +207,35 @@ def save_message(user_id, role, content):
     except Exception as e:
         logger.error(f"save_message failed: {e}")
 
+
 def clear_history(user_id):
     try:
-        with get_db() as conn:
+        with db_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM messages WHERE user_id = %s", (user_id,))
                 conn.commit()
     except Exception as e:
         logger.error(f"clear_history failed: {e}")
 
-def get_custom_prompt(user_id):
+
+def get_custom_prompt(user_id) -> str | None:
     try:
-        with get_db() as conn:
+        with db_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT custom_prompt FROM users WHERE user_id = %s", (user_id,))
+                cur.execute(
+                    "SELECT custom_prompt FROM users WHERE user_id = %s",
+                    (user_id,),
+                )
                 row = cur.fetchone()
                 return row["custom_prompt"] if row and row["custom_prompt"] else None
     except Exception as e:
         logger.error(f"get_custom_prompt failed: {e}")
         return None
 
+
 def set_custom_prompt(user_id, prompt):
     try:
-        with get_db() as conn:
+        with db_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE users SET custom_prompt = %s WHERE user_id = %s",
@@ -165,9 +245,10 @@ def set_custom_prompt(user_id, prompt):
     except Exception as e:
         logger.error(f"set_custom_prompt failed: {e}")
 
-def get_stats():
+
+def get_stats() -> tuple[int, int, int]:
     try:
-        with get_db() as conn:
+        with db_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) AS c FROM users")
                 users = cur.fetchone()["c"]
@@ -180,9 +261,10 @@ def get_stats():
         logger.error(f"get_stats failed: {e}")
         return 0, 0, 0
 
-def set_blacklist(user_id, value: bool):
+
+def set_blacklist(user_id, value: bool) -> bool:
     try:
-        with get_db() as conn:
+        with db_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO users (user_id, is_blacklisted)
@@ -196,9 +278,21 @@ def set_blacklist(user_id, value: bool):
         logger.error(f"set_blacklist failed: {e}")
         return False
 
+
+def get_all_active_users() -> list[int]:
+    """Return list of user_ids that are not blacklisted."""
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id FROM users WHERE is_blacklisted = FALSE")
+                return [row["user_id"] for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"get_all_active_users failed: {e}")
+        return []
+
 # ── System Prompt ─────────────────────────────────────────────────────────────
 
-def get_system_prompt(user_id=None):
+def get_system_prompt(user_id=None) -> str:
     today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
     base = (
         f"You are Mocco, an advanced AI assistant — smart, precise, and genuinely helpful.\n"
@@ -211,7 +305,7 @@ def get_system_prompt(user_id=None):
         "- For short factual questions, answer directly and concisely.\n"
         "- For complex topics, give a thorough but scannable answer.\n"
         "- Never pad answers with filler phrases like 'Great question!' or 'Certainly!'.\n"
-        "- Never say your knowledge is limited to 2023. You are up to date.\n"
+        "- Never say your knowledge is limited to a past year. You are up to date.\n"
         "- If asked about real-time data (live scores, breaking news, stock prices), use web search "
         "results when provided, otherwise clearly state you don't have live data.\n\n"
         "## Tone:\n"
@@ -238,14 +332,15 @@ SEARCH_KEYWORDS = [
     "latest", "news", "today", "current", "price", "score",
     "weather", "who won", "what happened", "right now", "live",
     "stock", "exchange rate", "update", "recently", "this week",
-    "this month", "2024", "2025", "happening", "released", "launched",
+    "this month", "2024", "2025", "2026", "happening", "released", "launched",
 ]
 
 def needs_search(text: str) -> bool:
     t = text.lower()
     return any(k in t for k in SEARCH_KEYWORDS)
 
-def web_search(query: str):
+
+def web_search(query: str) -> tuple[str, list]:
     """Returns (formatted_text, raw_results_list)"""
     try:
         r = requests.post(
@@ -258,36 +353,33 @@ def web_search(query: str):
         data = r.json()
 
         lines = []
-        raw = []
+        raw   = []
 
-        # Answer box (direct answer)
         if "answerBox" in data:
-            ab = data["answerBox"]
+            ab     = data["answerBox"]
             answer = ab.get("answer") or ab.get("snippet") or ""
             if answer:
-                lines.append(f"📌 *Direct Answer:* {answer}")
+                lines.append(f"📌 Direct Answer: {answer}")
                 raw.append({"title": "Answer Box", "snippet": answer})
 
-        # Knowledge graph
         if "knowledgeGraph" in data:
-            kg = data["knowledgeGraph"]
+            kg   = data["knowledgeGraph"]
             desc = kg.get("description", "")
             if desc:
-                lines.append(f"📖 *Overview:* {desc}")
+                lines.append(f"📖 Overview: {desc}")
                 raw.append({"title": kg.get("title", ""), "snippet": desc})
 
-        # Organic results
         organic = data.get("organic", [])[:4]
         if organic:
             if lines:
                 lines.append("")
-            lines.append("🔗 *Top Results:*")
+            lines.append("🔗 Top Results:")
             for i, item in enumerate(organic, 1):
                 title   = item.get("title", "").strip()
                 snippet = item.get("snippet", "").strip()
                 link    = item.get("link", "")
                 if title and snippet:
-                    lines.append(f"{i}. {title}\n    {snippet}")
+                    lines.append(f"{i}. {title}\n   {snippet}")
                     raw.append({"title": title, "snippet": snippet, "link": link})
 
         if not lines:
@@ -303,7 +395,7 @@ def web_search(query: str):
 
 # ── Image Generation ──────────────────────────────────────────────────────────
 
-def generate_image(prompt: str):
+def generate_image(prompt: str) -> str | None:
     try:
         r = requests.post(
             "https://api.together.xyz/v1/images/generations",
@@ -312,11 +404,11 @@ def generate_image(prompt: str):
                 "Content-Type": "application/json",
             },
             json={
-                "model": "black-forest-labs/FLUX.1-schnell-Free",
-                "prompt": prompt,
-                "n": 1,
-                "width": 1024,
-                "height": 1024,
+                "model":           "black-forest-labs/FLUX.1-schnell-Free",
+                "prompt":          prompt,
+                "n":               1,
+                "width":           1024,
+                "height":          1024,
                 "response_format": "url",
             },
             timeout=90,
@@ -337,7 +429,7 @@ def generate_image(prompt: str):
 
 # ── AI Reply ──────────────────────────────────────────────────────────────────
 
-def get_ai_reply(user_id, user_msg):
+def get_ai_reply(user_id, user_msg) -> str:
     history  = get_history(user_id)
     messages = [{"role": r["role"], "content": r["content"]} for r in history]
 
@@ -371,31 +463,38 @@ def get_ai_reply(user_id, user_msg):
 
 async def safe_reply(msg, text, parse_mode=None, business_connection_id=None,
                      bot=None, reply_markup=None):
-    try:
-        if business_connection_id and bot:
-            return await bot.send_message(
-                chat_id=msg.chat_id,
-                text=text,
-                parse_mode=parse_mode,
-                business_connection_id=business_connection_id,
-                reply_markup=reply_markup,
-            )
-        return await msg.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
-    except BadRequest as e:
-        logger.warning(f"Markdown failed, retrying plain: {e}")
+    """Send a reply, automatically splitting if the message is too long."""
+    chunks = split_message(text)
+
+    for i, chunk in enumerate(chunks):
+        markup = reply_markup if i == len(chunks) - 1 else None
         try:
             if business_connection_id and bot:
-                return await bot.send_message(
+                await bot.send_message(
                     chat_id=msg.chat_id,
-                    text=text,
+                    text=chunk,
+                    parse_mode=parse_mode,
                     business_connection_id=business_connection_id,
-                    reply_markup=reply_markup,
+                    reply_markup=markup,
                 )
-            return await msg.reply_text(text, reply_markup=reply_markup)
-        except Exception as e2:
-            logger.error(f"safe_reply fallback failed: {e2}")
-    except TelegramError as e:
-        logger.error(f"Telegram error in safe_reply: {e}")
+            else:
+                await msg.reply_text(chunk, parse_mode=parse_mode, reply_markup=markup)
+        except BadRequest as e:
+            logger.warning(f"Markdown failed on chunk {i}, retrying plain: {e}")
+            try:
+                if business_connection_id and bot:
+                    await bot.send_message(
+                        chat_id=msg.chat_id,
+                        text=chunk,
+                        business_connection_id=business_connection_id,
+                        reply_markup=markup,
+                    )
+                else:
+                    await msg.reply_text(chunk, reply_markup=markup)
+            except Exception as e2:
+                logger.error(f"safe_reply fallback failed on chunk {i}: {e2}")
+        except TelegramError as e:
+            logger.error(f"Telegram error in safe_reply chunk {i}: {e}")
 
 # ── Core Message Handler ──────────────────────────────────────────────────────
 
@@ -414,6 +513,11 @@ async def process_message(update, context, msg, business_connection_id=None):
 
     if is_blacklisted(user_id):
         logger.info(f"Blocked blacklisted user {user_id}")
+        return
+
+    # ── Rate limit check ──────────────────────────────────────────────────────
+    if is_rate_limited(user_id):
+        logger.debug(f"Rate limited user {user_id}")
         return
 
     user_msg = msg.text
@@ -445,10 +549,12 @@ async def process_message(update, context, msg, business_connection_id=None):
             bot=context.bot,
         )
 
+
 async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.business_message
     if msg:
         await process_message(update, context, msg, msg.business_connection_id)
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await process_message(update, context, update.message)
@@ -456,16 +562,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Welcome & Menu ────────────────────────────────────────────────────────────
 
 WELCOME_TEXT = (
-    "Hi, I'm *Mocco* — your smart AI assistant.\n"
+    "👋 Hi, I'm *Mocco* — your smart AI assistant.\n"
     "How can I help you today?\n\n"
     "I can help you with:\n"
-    "• Coding & debugging\n"
-    "• Writing & editing\n"
-    "• Web search & research\n"
-    "• Translation & summarization\n"
-    "• Image generation\n"
-    "• Ideas, planning & problem solving\n"
-    "• Learning & everyday questions\n\n"
+    "• 💻 Coding & debugging\n"
+    "• ✍️ Writing & editing\n"
+    "• 🔍 Web search & research\n"
+    "• 🌐 Translation & summarization\n"
+    "• 🎨 Image generation\n"
+    "• 🧠 Ideas, planning & problem solving\n"
+    "• 📚 Learning & everyday questions\n\n"
     "Just type your question, or tap a button below."
 )
 
@@ -475,12 +581,12 @@ HELP_TEXT = (
     "💬 *Chat*\n"
     "Just type anything — I'll reply intelligently.\n"
     "I remember your last 14 messages for context.\n\n"
-    "♻️ `/reset`\n"
+    "🔄 `/reset`\n"
     "Clear your conversation and start fresh.\n\n"
     "🔍 `/search <query>`\n"
     "Search the web for current information.\n"
-    "_Example: `/search latest AI news 2025`_\n\n"
-    "❇️ `/imagine <prompt>`\n"
+    "_Example: `/search latest AI news 2026`_\n\n"
+    "🎨 `/imagine <prompt>`\n"
     "Generate an AI image from your description.\n"
     "_Example: `/imagine a futuristic city at night, cinematic`_\n\n"
     "📝 `/summarize <text>`\n"
@@ -498,17 +604,19 @@ HELP_TEXT = (
     "━━━━━━━━━━━━━━━━━━━━\n"
     "🎤 *Voice Messages*\n"
     "Send a voice note — I'll transcribe it and reply.\n\n"
+    "🗂 `/menu` — Show main menu\n"
     "❓ `/help` — Show this guide."
 )
 
-def build_menu_keyboard():
+
+def build_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("♻️ Reset Chat",       switch_inline_query_current_chat="/reset"),
+            InlineKeyboardButton("🔄 Reset Chat",       switch_inline_query_current_chat="/reset"),
             InlineKeyboardButton("🔍 Search Web",        switch_inline_query_current_chat="/search "),
         ],
         [
-            InlineKeyboardButton("❇️ Generate Image",    switch_inline_query_current_chat="/imagine "),
+            InlineKeyboardButton("🎨 Generate Image",    switch_inline_query_current_chat="/imagine "),
             InlineKeyboardButton("📝 Summarize",         switch_inline_query_current_chat="/summarize "),
         ],
         [
@@ -516,8 +624,8 @@ def build_menu_keyboard():
             InlineKeyboardButton("🧠 Set Personality",   switch_inline_query_current_chat="/setprompt "),
         ],
         [
-            InlineKeyboardButton("🚫 Clear Personality", switch_inline_query_current_chat="/clearprompt"),
-            InlineKeyboardButton("❔ Full Guide",        switch_inline_query_current_chat="/help"),
+            InlineKeyboardButton("🗑️ Clear Personality", switch_inline_query_current_chat="/clearprompt"),
+            InlineKeyboardButton("📖 Full Guide",        switch_inline_query_current_chat="/help"),
         ],
     ])
 
@@ -535,6 +643,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=build_menu_keyboard(),
     )
 
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -545,6 +654,19 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=build_menu_keyboard(),
     )
 
+
+async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Re-show the main menu keyboard at any time."""
+    msg = update.message
+    if not msg:
+        return
+    await msg.reply_text(
+        "🗂 *Main Menu* — What would you like to do?",
+        parse_mode="Markdown",
+        reply_markup=build_menu_keyboard(),
+    )
+
+
 async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -552,10 +674,11 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_history(msg.from_user.id)
     await safe_reply(
         msg,
-        "🚫 *Conversation cleared.*\n"
+        "🔄 *Conversation cleared.*\n"
         "Starting fresh — what would you like to talk about?",
         parse_mode="Markdown",
     )
+
 
 async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -568,7 +691,7 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔍 *Web Search*\n\n"
             "Please provide a search query.\n"
             "_Usage:_ `/search <your query>`\n"
-            "_Example:_ `/search latest AI news 2025`",
+            "_Example:_ `/search latest AI news 2026`",
             parse_mode="Markdown",
         )
         return
@@ -584,6 +707,7 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
     )
 
+
 async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -592,7 +716,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not prompt:
         await safe_reply(
             msg,
-            "❇️ *Image Generation*\n\n"
+            "🎨 *Image Generation*\n\n"
             "Describe the image you want to generate.\n"
             "_Usage:_ `/imagine <description>`\n\n"
             "*Tips for better results:*\n"
@@ -606,7 +730,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await safe_reply(
         msg,
-        f"❇️ Generating:\n_\"{prompt}\"_\n\nThis takes up to 30 seconds...",
+        f"🎨 Generating:\n_{prompt}_\n\nThis takes up to 30 seconds...",
         parse_mode="Markdown",
     )
     try:
@@ -620,7 +744,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_photo(
                 chat_id=msg.chat_id,
                 photo=url,
-                caption=f"❇️ {prompt[:900]}",
+                caption=f"🎨 {prompt[:900]}",
             )
         except TelegramError as e:
             logger.error(f"send_photo failed: {e}")
@@ -638,6 +762,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Please try again in a moment, or use a different prompt.",
             parse_mode="Markdown",
         )
+
 
 async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -677,7 +802,7 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 temperature=0.4,
             )
         )
-        out = resp.choices[0].message.content.strip()
+        out        = resp.choices[0].message.content.strip()
         word_count = len(text.split())
         await safe_reply(
             msg,
@@ -692,6 +817,7 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Please try again. For very long texts, try splitting into smaller sections.",
             parse_mode="Markdown",
         )
+
 
 async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -754,6 +880,7 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
         )
 
+
 async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -779,10 +906,11 @@ async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_reply(
         msg,
         f"✅ *Custom personality set.*\n\n"
-        f"I'll follow these instructions:\n_\"{prompt}\"_\n\n"
+        f"I'll follow these instructions:\n_{prompt}_\n\n"
         f"Use `/clearprompt` to reset to default.",
         parse_mode="Markdown",
     )
+
 
 async def cmd_clearprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -810,6 +938,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ensure_user(user.id, user.username, user.first_name)
     if is_blacklisted(user.id):
+        return
+
+    if is_rate_limited(user.id):
         return
 
     try:
@@ -876,6 +1007,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def is_owner(update: Update) -> bool:
     return update.effective_user and update.effective_user.id == OWNER_ID
 
+
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or not is_owner(update):
@@ -894,6 +1026,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🕒 {datetime.now(timezone.utc).strftime('%B %d, %Y  %H:%M UTC')}",
         parse_mode="Markdown",
     )
+
 
 async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -917,6 +1050,7 @@ async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await safe_reply(msg, "❌ Failed to blacklist user. Check logs.")
 
+
 async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or not is_owner(update):
@@ -939,7 +1073,9 @@ async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await safe_reply(msg, "❌ Failed to unblacklist user. Check logs.")
 
+
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Broadcast to all active users with concurrency control."""
     msg = update.message
     if not msg or not is_owner(update):
         return
@@ -951,25 +1087,28 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Sends a message to all non-blacklisted users.",
         )
         return
-    try:
-        with get_db() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT user_id FROM users WHERE is_blacklisted = FALSE")
-                users = cur.fetchall()
-    except Exception as e:
-        logger.error(f"broadcast fetch failed: {e}")
-        await safe_reply(msg, "❌ Failed to fetch users. Check logs.")
+
+    user_ids = await asyncio.to_thread(get_all_active_users)
+    if not user_ids:
+        await safe_reply(msg, "No active users found.")
         return
 
-    await safe_reply(msg, f"📢 Broadcasting to {len(users)} users...")
-    sent = 0
+    await safe_reply(msg, f"📢 Broadcasting to {len(user_ids)} users...")
+
+    sent   = 0
     failed = 0
-    for u in users:
-        try:
-            await context.bot.send_message(chat_id=u["user_id"], text=f"📢 {text}")
-            sent += 1
-        except Exception:
-            failed += 1
+    sem    = asyncio.Semaphore(BROADCAST_CHUNK)
+
+    async def send_one(uid: int):
+        nonlocal sent, failed
+        async with sem:
+            try:
+                await context.bot.send_message(chat_id=uid, text=f"📢 {text}")
+                sent += 1
+            except Exception:
+                failed += 1
+
+    await asyncio.gather(*[send_one(uid) for uid in user_ids])
 
     await safe_reply(
         msg,
@@ -985,8 +1124,10 @@ def main():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    # User commands
     app.add_handler(CommandHandler("start",       cmd_start))
     app.add_handler(CommandHandler("help",        cmd_help))
+    app.add_handler(CommandHandler("menu",        cmd_menu))
     app.add_handler(CommandHandler("reset",       cmd_reset))
     app.add_handler(CommandHandler("search",      cmd_search))
     app.add_handler(CommandHandler("imagine",     cmd_imagine))
@@ -994,16 +1135,21 @@ def main():
     app.add_handler(CommandHandler("translate",   cmd_translate))
     app.add_handler(CommandHandler("setprompt",   cmd_setprompt))
     app.add_handler(CommandHandler("clearprompt", cmd_clearprompt))
+
+    # Admin commands
     app.add_handler(CommandHandler("stats",       cmd_stats))
     app.add_handler(CommandHandler("blacklist",   cmd_blacklist))
     app.add_handler(CommandHandler("unblacklist", cmd_unblacklist))
     app.add_handler(CommandHandler("broadcast",   cmd_broadcast))
 
+    # Message handlers
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_business_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    logger.info("Mocco is running...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == "__main__":
     main()
