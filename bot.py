@@ -336,7 +336,7 @@ def web_search(query: str) -> tuple[str, list]:
             timeout=10,
         )
         r.raise_for_status()
-        data = r.json()
+        data  = r.json()
         lines = []
         raw   = []
 
@@ -381,12 +381,12 @@ def web_search(query: str) -> tuple[str, list]:
 # ── Image Generation ──────────────────────────────────────────────────────────
 def generate_image(prompt: str) -> str | None:
     models = [
-        "stabilityai/stable-diffusion-xl-base-1.0",
-        "black-forest-labs/FLUX.1-schnell-Free",
+        {"model": "black-forest-labs/FLUX.1-schnell", "steps": 4},
+        {"model": "stabilityai/stable-diffusion-xl-base-1.0", "steps": 20},
     ]
-    for model in models:
+    for m in models:
         try:
-            logger.info(f"Trying image model: {model}")
+            logger.info(f"Trying image model: {m['model']}")
             r = requests.post(
                 "https://api.together.xyz/v1/images/generations",
                 headers={
@@ -394,28 +394,29 @@ def generate_image(prompt: str) -> str | None:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model":  model,
+                    "model":  m["model"],
                     "prompt": prompt,
+                    "steps":  m["steps"],
                     "n":      1,
                     "width":  1024,
                     "height": 1024,
                 },
                 timeout=120,
             )
-            logger.info(f"Together status: {r.status_code} | Response: {r.text[:300]}")
+            logger.info(f"Together status: {r.status_code} | {r.text[:300]}")
             r.raise_for_status()
             data = r.json()
             if "data" in data and data["data"]:
                 item   = data["data"][0]
                 result = item.get("url") or item.get("b64_json")
                 if result:
-                    logger.info(f"Image success with {model}")
+                    logger.info(f"Image success with {m['model']}")
                     return result
         except requests.exceptions.Timeout:
-            logger.error(f"Model {model} timed out")
+            logger.error(f"Model {m['model']} timed out")
             continue
         except Exception as e:
-            logger.error(f"Model {model} failed: {e}")
+            logger.error(f"Model {m['model']} failed: {e}")
             continue
     return None
 
@@ -597,20 +598,20 @@ HELP_TEXT = (
 def build_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔄 Reset Chat",       switch_inline_query_current_chat="/reset"),
-            InlineKeyboardButton("🔍 Search Web",        switch_inline_query_current_chat="/search "),
+            InlineKeyboardButton("🔄 Reset Chat",        switch_inline_query_current_chat="/reset"),
+            InlineKeyboardButton("🔍 Search Web",         switch_inline_query_current_chat="/search "),
         ],
         [
-            InlineKeyboardButton("🎨 Generate Image",    switch_inline_query_current_chat="/imagine "),
-            InlineKeyboardButton("📝 Summarize",         switch_inline_query_current_chat="/summarize "),
+            InlineKeyboardButton("🎨 Generate Image",     switch_inline_query_current_chat="/imagine "),
+            InlineKeyboardButton("📝 Summarize",          switch_inline_query_current_chat="/summarize "),
         ],
         [
-            InlineKeyboardButton("🌐 Translate",         switch_inline_query_current_chat="/translate "),
-            InlineKeyboardButton("🧠 Set Personality",   switch_inline_query_current_chat="/setprompt "),
+            InlineKeyboardButton("🌐 Translate",          switch_inline_query_current_chat="/translate "),
+            InlineKeyboardButton("🧠 Set Personality",    switch_inline_query_current_chat="/setprompt "),
         ],
         [
-            InlineKeyboardButton("🗑️ Clear Personality", switch_inline_query_current_chat="/clearprompt"),
-            InlineKeyboardButton("📖 Full Guide",        switch_inline_query_current_chat="/help"),
+            InlineKeyboardButton("🗑️ Clear Personality",  switch_inline_query_current_chat="/clearprompt"),
+            InlineKeyboardButton("📖 Full Guide",         switch_inline_query_current_chat="/help"),
         ],
     ])
 
@@ -621,22 +622,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     ensure_user(msg.from_user.id, msg.from_user.username, msg.from_user.first_name)
     clear_history(msg.from_user.id)
-    await msg.reply_text(
-        WELCOME_TEXT,
-        parse_mode="Markdown",
-        reply_markup=build_menu_keyboard(),
-    )
+    await msg.reply_text(WELCOME_TEXT, parse_mode="Markdown", reply_markup=build_menu_keyboard())
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
         return
-    await msg.reply_text(
-        HELP_TEXT,
-        parse_mode="Markdown",
-        reply_markup=build_menu_keyboard(),
-    )
+    await msg.reply_text(HELP_TEXT, parse_mode="Markdown", reply_markup=build_menu_keyboard())
 
 
 async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -657,8 +650,7 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_history(msg.from_user.id)
     await safe_reply(
         msg,
-        "🔄 *Conversation cleared.*\n"
-        "Starting fresh — what would you like to talk about?",
+        "🔄 *Conversation cleared.*\nStarting fresh — what would you like to talk about?",
         parse_mode="Markdown",
     )
 
@@ -683,11 +675,7 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except TelegramError:
         pass
     search_text, _ = await asyncio.to_thread(web_search, query)
-    await safe_reply(
-        msg,
-        f"🔍 *Results for:* `{query}`\n\n{search_text}",
-        parse_mode="Markdown",
-    )
+    await safe_reply(msg, f"🔍 *Results for:* `{query}`\n\n{search_text}", parse_mode="Markdown")
 
 
 async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -730,8 +718,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"send_photo failed: {e}")
             await safe_reply(
                 msg,
-                "❌ *Image was generated but could not be sent.*\n"
-                "Please try again.",
+                "❌ *Image was generated but could not be sent.*\nPlease try again.",
                 parse_mode="Markdown",
             )
     else:
@@ -754,8 +741,7 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg,
             "📝 *Summarize Text*\n\n"
             "Paste the text you want summarized.\n"
-            "_Usage:_ `/summarize <text>`\n\n"
-            "Works great with articles, paragraphs, or any long content.",
+            "_Usage:_ `/summarize <text>`",
             parse_mode="Markdown",
         )
         return
@@ -791,11 +777,7 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error(f"summarize failed: {e}")
-        await safe_reply(
-            msg,
-            "❌ *Summarization failed.*\nPlease try again.",
-            parse_mode="Markdown",
-        )
+        await safe_reply(msg, "❌ *Summarization failed.*\nPlease try again.", parse_mode="Markdown")
 
 
 async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -810,7 +792,6 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "*Examples:*\n"
             "• `/translate Spanish Hello, how are you?`\n"
             "• `/translate Arabic Good morning`\n"
-            "• `/translate Japanese Thank you very much`\n"
             "• `/translate Bengali Where is the nearest hospital?`",
             parse_mode="Markdown",
         )
@@ -850,11 +831,7 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error(f"translate failed: {e}")
-        await safe_reply(
-            msg,
-            f"❌ *Translation to {lang} failed.*\nPlease try again.",
-            parse_mode="Markdown",
-        )
+        await safe_reply(msg, f"❌ *Translation to {lang} failed.*\nPlease try again.", parse_mode="Markdown")
 
 
 async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -879,8 +856,7 @@ async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_custom_prompt(msg.from_user.id, prompt)
     await safe_reply(
         msg,
-        f"✅ *Custom personality set.*\n\n"
-        f"I'll follow these instructions:\n_{prompt}_\n\n"
+        f"✅ *Custom personality set.*\n\nI'll follow these instructions:\n_{prompt}_\n\n"
         f"Use `/clearprompt` to reset to default.",
         parse_mode="Markdown",
     )
@@ -893,8 +869,7 @@ async def cmd_clearprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_custom_prompt(msg.from_user.id, None)
     await safe_reply(
         msg,
-        "✅ *Custom personality removed.*\n"
-        "I'm back to my default behavior.",
+        "✅ *Custom personality removed.*\nI'm back to my default behavior.",
         parse_mode="Markdown",
     )
 
@@ -935,8 +910,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not user_msg:
             await safe_reply(
                 msg,
-                "❌ *Could not transcribe your voice message.*\n"
-                "Please ensure your audio is clear and try again.",
+                "❌ *Could not transcribe your voice message.*\nPlease ensure your audio is clear and try again.",
                 parse_mode="Markdown",
             )
             return
