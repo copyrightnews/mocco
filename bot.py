@@ -22,7 +22,6 @@ from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -32,7 +31,6 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 logger = logging.getLogger("mocco")
 
 # ── Config ────────────────────────────────────────────────────────────────────
-
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]
 GROQ_API_KEY     = os.environ["GROQ_API_KEY"]
 SERPER_API_KEY   = os.environ["SERPER_API_KEY"]
@@ -43,12 +41,11 @@ BOT_ID           = int(os.environ.get("BOT_ID",   "8877277512"))
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-MAX_MSG_LEN        = 4000   # Telegram limit is 4096, keep buffer
-RATE_LIMIT_SECONDS = 3      # Min seconds between messages per user
-BROADCAST_CHUNK    = 25     # Concurrent sends during broadcast
+MAX_MSG_LEN        = 4000
+RATE_LIMIT_SECONDS = 3
+BROADCAST_CHUNK    = 25
 
 # ── Rate Limiter ──────────────────────────────────────────────────────────────
-
 _last_msg: dict[int, float] = defaultdict(float)
 
 def is_rate_limited(user_id: int) -> bool:
@@ -59,12 +56,9 @@ def is_rate_limited(user_id: int) -> bool:
     return False
 
 # ── Message Splitter ──────────────────────────────────────────────────────────
-
 def split_message(text: str, limit: int = MAX_MSG_LEN) -> list[str]:
-    """Split a long message into chunks under the Telegram limit."""
     if len(text) <= limit:
         return [text]
-
     chunks = []
     while len(text) > limit:
         split_at = text.rfind("\n", 0, limit)
@@ -74,14 +68,11 @@ def split_message(text: str, limit: int = MAX_MSG_LEN) -> list[str]:
             split_at = limit
         chunks.append(text[:split_at].strip())
         text = text[split_at:].strip()
-
     if text:
         chunks.append(text)
-
     return chunks
 
 # ── Database (Connection Pool) ────────────────────────────────────────────────
-
 _pool: pool.ThreadedConnectionPool | None = None
 
 def get_pool() -> pool.ThreadedConnectionPool:
@@ -97,7 +88,6 @@ def get_pool() -> pool.ThreadedConnectionPool:
     return _pool
 
 class db_conn:
-    """Context manager: borrows a connection from the pool, always returns it."""
     def __enter__(self):
         self.conn = get_pool().getconn()
         return self.conn
@@ -109,7 +99,7 @@ class db_conn:
             except Exception:
                 pass
         get_pool().putconn(self.conn)
-        return False  # re-raise any exception
+        return False
 
 
 def init_db():
@@ -280,7 +270,6 @@ def set_blacklist(user_id, value: bool) -> bool:
 
 
 def get_all_active_users() -> list[int]:
-    """Return list of user_ids that are not blacklisted."""
     try:
         with db_conn() as conn:
             with conn.cursor() as cur:
@@ -291,7 +280,6 @@ def get_all_active_users() -> list[int]:
         return []
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
-
 def get_system_prompt(user_id=None) -> str:
     today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
     base = (
@@ -327,7 +315,6 @@ def get_system_prompt(user_id=None) -> str:
     return base
 
 # ── Web Search ────────────────────────────────────────────────────────────────
-
 SEARCH_KEYWORDS = [
     "latest", "news", "today", "current", "price", "score",
     "weather", "who won", "what happened", "right now", "live",
@@ -341,7 +328,6 @@ def needs_search(text: str) -> bool:
 
 
 def web_search(query: str) -> tuple[str, list]:
-    """Returns (formatted_text, raw_results_list)"""
     try:
         r = requests.post(
             "https://google.serper.dev/search",
@@ -351,7 +337,6 @@ def web_search(query: str) -> tuple[str, list]:
         )
         r.raise_for_status()
         data = r.json()
-
         lines = []
         raw   = []
 
@@ -394,41 +379,47 @@ def web_search(query: str) -> tuple[str, list]:
         return "Search failed. Please try again in a moment.", []
 
 # ── Image Generation ──────────────────────────────────────────────────────────
-
 def generate_image(prompt: str) -> str | None:
-    try:
-        r = requests.post(
-            "https://api.together.xyz/v1/images/generations",
-            headers={
-                "Authorization": f"Bearer {TOGETHER_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model":           "black-forest-labs/FLUX.1-schnell-Free",
-                "prompt":          prompt,
-                "n":               1,
-                "width":           1024,
-                "height":          1024,
-                "response_format": "url",
-            },
-            timeout=90,
-        )
-        r.raise_for_status()
-        data = r.json()
-        if "data" in data and data["data"]:
-            item = data["data"][0]
-            return item.get("url") or item.get("b64_json")
-        logger.error(f"Image gen unexpected response: {data}")
-        return None
-    except requests.exceptions.Timeout:
-        logger.error("Image generation timed out")
-        return None
-    except Exception as e:
-        logger.error(f"Image gen error: {e}")
-        return None
+    models = [
+        "stabilityai/stable-diffusion-xl-base-1.0",
+        "black-forest-labs/FLUX.1-schnell-Free",
+    ]
+    for model in models:
+        try:
+            logger.info(f"Trying image model: {model}")
+            r = requests.post(
+                "https://api.together.xyz/v1/images/generations",
+                headers={
+                    "Authorization": f"Bearer {TOGETHER_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model":  model,
+                    "prompt": prompt,
+                    "n":      1,
+                    "width":  1024,
+                    "height": 1024,
+                },
+                timeout=120,
+            )
+            logger.info(f"Together status: {r.status_code} | Response: {r.text[:300]}")
+            r.raise_for_status()
+            data = r.json()
+            if "data" in data and data["data"]:
+                item   = data["data"][0]
+                result = item.get("url") or item.get("b64_json")
+                if result:
+                    logger.info(f"Image success with {model}")
+                    return result
+        except requests.exceptions.Timeout:
+            logger.error(f"Model {model} timed out")
+            continue
+        except Exception as e:
+            logger.error(f"Model {model} failed: {e}")
+            continue
+    return None
 
 # ── AI Reply ──────────────────────────────────────────────────────────────────
-
 def get_ai_reply(user_id, user_msg) -> str:
     history  = get_history(user_id)
     messages = [{"role": r["role"], "content": r["content"]} for r in history]
@@ -460,12 +451,9 @@ def get_ai_reply(user_id, user_msg) -> str:
         )
 
 # ── Safe Reply Helper ─────────────────────────────────────────────────────────
-
 async def safe_reply(msg, text, parse_mode=None, business_connection_id=None,
                      bot=None, reply_markup=None):
-    """Send a reply, automatically splitting if the message is too long."""
     chunks = split_message(text)
-
     for i, chunk in enumerate(chunks):
         markup = reply_markup if i == len(chunks) - 1 else None
         try:
@@ -497,7 +485,6 @@ async def safe_reply(msg, text, parse_mode=None, business_connection_id=None,
             logger.error(f"Telegram error in safe_reply chunk {i}: {e}")
 
 # ── Core Message Handler ──────────────────────────────────────────────────────
-
 async def process_message(update, context, msg, business_connection_id=None):
     if not msg or not msg.text:
         return
@@ -515,7 +502,6 @@ async def process_message(update, context, msg, business_connection_id=None):
         logger.info(f"Blocked blacklisted user {user_id}")
         return
 
-    # ── Rate limit check ──────────────────────────────────────────────────────
     if is_rate_limited(user_id):
         logger.debug(f"Rate limited user {user_id}")
         return
@@ -560,7 +546,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await process_message(update, context, update.message)
 
 # ── Welcome & Menu ────────────────────────────────────────────────────────────
-
 WELCOME_TEXT = (
     "👋 Hi, I'm *Mocco* — your smart AI assistant.\n"
     "How can I help you today?\n\n"
@@ -630,7 +615,6 @@ def build_menu_keyboard() -> InlineKeyboardMarkup:
     ])
 
 # ── Commands ──────────────────────────────────────────────────────────────────
-
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -656,7 +640,6 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Re-show the main menu keyboard at any time."""
     msg = update.message
     if not msg:
         return
@@ -699,7 +682,6 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_chat_action(chat_id=msg.chat_id, action=ChatAction.TYPING)
     except TelegramError:
         pass
-
     search_text, _ = await asyncio.to_thread(web_search, query)
     await safe_reply(
         msg,
@@ -727,7 +709,6 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
         )
         return
-
     await safe_reply(
         msg,
         f"🎨 Generating:\n_{prompt}_\n\nThis takes up to 30 seconds...",
@@ -737,7 +718,6 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_chat_action(chat_id=msg.chat_id, action=ChatAction.UPLOAD_PHOTO)
     except TelegramError:
         pass
-
     url = await asyncio.to_thread(generate_image, prompt)
     if url:
         try:
@@ -813,8 +793,7 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"summarize failed: {e}")
         await safe_reply(
             msg,
-            "❌ *Summarization failed.*\n"
-            "Please try again. For very long texts, try splitting into smaller sections.",
+            "❌ *Summarization failed.*\nPlease try again.",
             parse_mode="Markdown",
         )
 
@@ -832,8 +811,7 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `/translate Spanish Hello, how are you?`\n"
             "• `/translate Arabic Good morning`\n"
             "• `/translate Japanese Thank you very much`\n"
-            "• `/translate Bengali Where is the nearest hospital?`\n\n"
-            "Supports all major world languages.",
+            "• `/translate Bengali Where is the nearest hospital?`",
             parse_mode="Markdown",
         )
         return
@@ -874,9 +852,7 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"translate failed: {e}")
         await safe_reply(
             msg,
-            f"❌ *Translation to {lang} failed.*\n"
-            "Please check the language name and try again.\n"
-            "_Example: `/translate French Hello`_",
+            f"❌ *Translation to {lang} failed.*\nPlease try again.",
             parse_mode="Markdown",
         )
 
@@ -894,10 +870,8 @@ async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "_Usage:_ `/setprompt <instructions>`\n\n"
             "*Examples:*\n"
             "• `/setprompt Act as a senior Python developer. Be technical and precise.`\n"
-            "• `/setprompt You are a creative writing coach. Give detailed feedback.`\n"
             "• `/setprompt Always reply in French.`\n"
-            "• `/setprompt Be very concise. Max 2 sentences per reply.`\n\n"
-            "Use `/clearprompt` to remove it.",
+            "• `/setprompt Be very concise. Max 2 sentences per reply.`",
             parse_mode="Markdown",
         )
         return
@@ -920,34 +894,27 @@ async def cmd_clearprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_reply(
         msg,
         "✅ *Custom personality removed.*\n"
-        "I'm back to my default behavior.\n"
-        "Use `/setprompt` anytime to set a new one.",
+        "I'm back to my default behavior.",
         parse_mode="Markdown",
     )
 
 # ── Voice Messages ────────────────────────────────────────────────────────────
-
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or not msg.voice:
         return
-
     user = msg.from_user
     if not user or user.is_bot:
         return
-
     ensure_user(user.id, user.username, user.first_name)
     if is_blacklisted(user.id):
         return
-
     if is_rate_limited(user.id):
         return
-
     try:
         await context.bot.send_chat_action(chat_id=msg.chat_id, action=ChatAction.TYPING)
     except TelegramError:
         pass
-
     tmp_path = None
     try:
         file = await context.bot.get_file(msg.voice.file_id)
@@ -965,34 +932,24 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         transcription = await asyncio.to_thread(transcribe)
         user_msg = (transcription or "").strip()
-
         if not user_msg:
             await safe_reply(
                 msg,
                 "❌ *Could not transcribe your voice message.*\n"
-                "Please ensure your audio is clear and try again, "
-                "or type your message instead.",
+                "Please ensure your audio is clear and try again.",
                 parse_mode="Markdown",
             )
             return
-
-        await safe_reply(
-            msg,
-            f"🎤 *Transcribed:*\n_{user_msg}_",
-            parse_mode="Markdown",
-        )
-
+        await safe_reply(msg, f"🎤 *Transcribed:*\n_{user_msg}_", parse_mode="Markdown")
         reply = await asyncio.to_thread(get_ai_reply, user.id, user_msg)
         save_message(user.id, "user", user_msg)
         save_message(user.id, "assistant", reply)
         await safe_reply(msg, reply)
-
     except Exception as e:
         logger.exception(f"Voice error: {e}")
         await safe_reply(
             msg,
-            "❌ *Voice processing failed.*\n"
-            "Please try again or type your message instead.",
+            "❌ *Voice processing failed.*\nPlease try again or type your message instead.",
             parse_mode="Markdown",
         )
     finally:
@@ -1003,7 +960,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
 # ── Admin Commands ────────────────────────────────────────────────────────────
-
 def is_owner(update: Update) -> bool:
     return update.effective_user and update.effective_user.id == OWNER_ID
 
@@ -1038,17 +994,12 @@ async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         target_id = int(context.args[0])
     except ValueError:
-        await safe_reply(msg, "❌ Invalid user ID. Please provide a numeric ID.")
+        await safe_reply(msg, "❌ Invalid user ID.")
         return
     if set_blacklist(target_id, True):
-        await safe_reply(
-            msg,
-            f"🚫 *User `{target_id}` blacklisted.*\n"
-            f"They will no longer receive responses.",
-            parse_mode="Markdown",
-        )
+        await safe_reply(msg, f"🚫 User `{target_id}` blacklisted.", parse_mode="Markdown")
     else:
-        await safe_reply(msg, "❌ Failed to blacklist user. Check logs.")
+        await safe_reply(msg, "❌ Failed to blacklist user.")
 
 
 async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1061,40 +1012,27 @@ async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         target_id = int(context.args[0])
     except ValueError:
-        await safe_reply(msg, "❌ Invalid user ID. Please provide a numeric ID.")
+        await safe_reply(msg, "❌ Invalid user ID.")
         return
     if set_blacklist(target_id, False):
-        await safe_reply(
-            msg,
-            f"✅ *User `{target_id}` unblacklisted.*\n"
-            f"They can now interact with Mocco again.",
-            parse_mode="Markdown",
-        )
+        await safe_reply(msg, f"✅ User `{target_id}` unblacklisted.", parse_mode="Markdown")
     else:
-        await safe_reply(msg, "❌ Failed to unblacklist user. Check logs.")
+        await safe_reply(msg, "❌ Failed to update user.")
 
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Broadcast to all active users with concurrency control."""
     msg = update.message
     if not msg or not is_owner(update):
         return
     text = " ".join(context.args).strip()
     if not text:
-        await safe_reply(
-            msg,
-            "Usage: /broadcast <message>\n\n"
-            "Sends a message to all non-blacklisted users.",
-        )
+        await safe_reply(msg, "Usage: /broadcast <message>")
         return
-
     user_ids = await asyncio.to_thread(get_all_active_users)
     if not user_ids:
         await safe_reply(msg, "No active users found.")
         return
-
     await safe_reply(msg, f"📢 Broadcasting to {len(user_ids)} users...")
-
     sent   = 0
     failed = 0
     sem    = asyncio.Semaphore(BROADCAST_CHUNK)
@@ -1109,22 +1047,17 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 failed += 1
 
     await asyncio.gather(*[send_one(uid) for uid in user_ids])
-
     await safe_reply(
         msg,
-        f"✅ *Broadcast complete.*\n"
-        f"Sent: *{sent}* | Failed: *{failed}*",
+        f"✅ *Broadcast complete.*\nSent: *{sent}* | Failed: *{failed}*",
         parse_mode="Markdown",
     )
 
 # ── Main ──────────────────────────────────────────────────────────────────────
-
 def main():
     init_db()
-
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # User commands
     app.add_handler(CommandHandler("start",       cmd_start))
     app.add_handler(CommandHandler("help",        cmd_help))
     app.add_handler(CommandHandler("menu",        cmd_menu))
@@ -1135,14 +1068,11 @@ def main():
     app.add_handler(CommandHandler("translate",   cmd_translate))
     app.add_handler(CommandHandler("setprompt",   cmd_setprompt))
     app.add_handler(CommandHandler("clearprompt", cmd_clearprompt))
-
-    # Admin commands
     app.add_handler(CommandHandler("stats",       cmd_stats))
     app.add_handler(CommandHandler("blacklist",   cmd_blacklist))
     app.add_handler(CommandHandler("unblacklist", cmd_unblacklist))
     app.add_handler(CommandHandler("broadcast",   cmd_broadcast))
 
-    # Message handlers
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_business_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
