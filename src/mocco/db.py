@@ -99,9 +99,12 @@ def init_db():
                 cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_model TEXT")
             except Exception:
                 pass
-            migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")
+        migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")
+        try:
             apply_migrations(conn, migrations_dir)
-            conn.commit()
+        except Exception as e:
+            logger.exception(f"Migration runner failed (continuing without migrations): {e}")
+        conn.commit()
     logger.info("Database initialized")
 
 

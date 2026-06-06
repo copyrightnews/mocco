@@ -59,7 +59,7 @@ def main():
     try:
         init_db()
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
+        logger.exception(f"Database initialization failed: {e!r}")
         logger.error("Check DATABASE_URL and that the Postgres service is reachable.")
         sys.exit(1)
 
