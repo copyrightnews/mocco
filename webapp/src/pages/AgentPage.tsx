@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { ChatPanel } from "../components/ChatPanel";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { api } from "../lib/api";
 import { useUserStore } from "../stores/useUserStore";
 import { useToastStore } from "../stores/useToastStore";
@@ -27,5 +28,5 @@ export function AgentPage() {
     })();
   }, [setMe, pushToast]);
 
-  return <ChatPanel />;
+  return <ErrorBoundary><ChatPanel /></ErrorBoundary>;
 }
