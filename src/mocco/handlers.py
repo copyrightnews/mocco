@@ -57,55 +57,55 @@ logger = logging.getLogger("mocco")
 BROADCAST_CHUNK = 25
 
 WELCOME_TEXT = (
-    "👋 Hi, I'm *Mocco* — your smart AI assistant.\n"
+    "Hi, I'm *Mocco* — your smart AI assistant.\n"
     "How can I help you today?\n\n"
     "I can help you with:\n"
-    "• 💻 Coding & debugging\n"
-    "• ✍️ Writing & editing\n"
-    "• 🔍 Web search & research\n"
-    "• 🌐 Translation & summarization\n"
-    "• 🎨 Image generation\n"
-    "• 🧠 Ideas, planning & problem solving\n"
-    "• 📚 Learning & everyday questions\n"
-    "• 🤖 Pick your own AI model with `/model`\n"
-    "• 🔑 Bring your own key (OpenRouter, OpenAI, Anthropic, Google, Groq, Together) via `/connect`\n\n"
+    "• Coding & debugging\n"
+    "• Writing & editing\n"
+    "• Web search & research\n"
+    "• Translation & summarization\n"
+    "• Image generation\n"
+    "• Ideas, planning & problem solving\n"
+    "• Learning & everyday questions\n"
+    "• Pick your own AI model with `/model`\n"
+    "• Bring your own key (OpenRouter, OpenAI, Anthropic, Google, Groq, Together) via `/connect`\n\n"
     "Just type your question, or tap a button below."
 )
 
 HELP_TEXT = (
-    "📖 *Mocco — Command Guide*\n\n"
+    "*Mocco — Command Guide*\n\n"
     "━━━━━━━━━━━━━━━━━━━━\n"
-    "💬 *Chat*\n"
+    "*Chat*\n"
     "Just type anything — I'll reply intelligently.\n"
     "I remember your last 14 messages for context.\n\n"
-    "🔄 `/reset`\n"
+    "`/reset`\n"
     "Clear your conversation and start fresh.\n\n"
-    "🔍 `/search <query>`\n"
+    "`/search <query>`\n"
     "Search the web for current information.\n"
     "_Example: `/search latest AI news 2026`_\n\n"
-    "🎨 `/imagine <prompt>`\n"
+    "`/imagine <prompt>`\n"
     "Generate an AI image from your description.\n"
     "_Example: `/imagine a futuristic city at night, cinematic`_\n\n"
-    "📝 `/summarize <text>`\n"
+    "`/summarize <text>`\n"
     "Paste any text and get a concise summary.\n\n"
-    "🌐 `/translate <language> <text>`\n"
+    "`/translate <language> <text>`\n"
     "Translate text into any language.\n"
     "_Example: `/translate Arabic Good morning`_\n\n"
     "━━━━━━━━━━━━━━━━━━━━\n"
-    "🧠 *Personalization*\n\n"
+    "*Personalization*\n\n"
     "`/setprompt <instructions>`\n"
     "Give me a custom role or behavior.\n"
     "_Example: `/setprompt Act as a senior Python developer`_\n\n"
     "`/clearprompt`\n"
     "Remove your custom personality.\n\n"
     "━━━━━━━━━━━━━━━━━━━━\n"
-    "🤖 *Models & API Keys*\n\n"
+    "*Models & API Keys*\n\n"
     "`/model`\n"
     "Pick from all available models (free + paid).\n"
     "`/model reset` — go back to bot default.\n\n"
     "`/connect` *or* `/connect <provider>`\n"
     "Save your own API key for a provider. Supported:\n"
-    "🌐 OpenRouter · 🟢 OpenAI · 🟠 Anthropic · 🔵 Google · ⚡ Groq · 🤝 Together\n"
+    "OpenRouter · OpenAI · Anthropic · Google · Groq · Together\n"
     "Keys are *verified live* against the provider, then encrypted at rest.\n\n"
     "`/keys`\n"
     "Show which provider keys you have connected.\n\n"
@@ -113,28 +113,28 @@ HELP_TEXT = (
     "Remove a stored key.\n\n"
     "`/cancel` — abort an in-progress `/connect`.\n\n"
     "━━━━━━━━━━━━━━━━━━━━\n"
-    "🗂 `/menu` — Show main menu\n"
-    "❓ `/help` — Show this guide."
+    "`/menu` — Show main menu\n"
+    "`/help` — Show this guide."
 )
 
 
 def build_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔄 Reset Chat",        callback_data="menu:reset"),
-            InlineKeyboardButton("🔍 Search Web",         callback_data="menu:search"),
+            InlineKeyboardButton("Reset Chat",        callback_data="menu:reset"),
+            InlineKeyboardButton("Search Web",         callback_data="menu:search"),
         ],
         [
-            InlineKeyboardButton("🎨 Generate Image",     callback_data="menu:imagine"),
-            InlineKeyboardButton("📝 Summarize",          callback_data="menu:summarize"),
+            InlineKeyboardButton("Generate Image",     callback_data="menu:imagine"),
+            InlineKeyboardButton("Summarize",          callback_data="menu:summarize"),
         ],
         [
-            InlineKeyboardButton("🤖 Choose Model",       callback_data="model:open"),
-            InlineKeyboardButton("🔑 Connect Key",        callback_data="model:connect"),
+            InlineKeyboardButton("Choose Model",       callback_data="model:open"),
+            InlineKeyboardButton("Connect Key",        callback_data="model:connect"),
         ],
         [
-            InlineKeyboardButton("🧠 Set Personality",    callback_data="menu:setprompt"),
-            InlineKeyboardButton("📖 Full Guide",         callback_data="menu:help"),
+            InlineKeyboardButton("Set Personality",    callback_data="menu:setprompt"),
+            InlineKeyboardButton("Full Guide",         callback_data="menu:help"),
         ],
     ])
 
@@ -246,7 +246,7 @@ async def process_message(update, context, msg, business_connection_id=None):
         if msg.document.file_size and msg.document.file_size > 500 * 1024:
             await safe_reply(
                 msg,
-                "❌ *File is too large.*\nPlease upload a text file smaller than 500 KB.",
+                "*File is too large.*\nPlease upload a text file smaller than 500 KB.",
                 parse_mode="Markdown",
                 business_connection_id=business_connection_id,
                 bot=context.bot,
@@ -271,7 +271,7 @@ async def process_message(update, context, msg, business_connection_id=None):
             logger.exception(f"Error downloading file: {e}")
             await safe_reply(
                 msg,
-                "❌ *Failed to download the file.*\nPlease try uploading again.",
+                "*Failed to download the file.*\nPlease try uploading again.",
                 parse_mode="Markdown",
                 business_connection_id=business_connection_id,
                 bot=context.bot,
@@ -287,7 +287,7 @@ async def process_message(update, context, msg, business_connection_id=None):
         if not file_bytes:
             await safe_reply(
                 msg,
-                "❌ *Empty file.*\nThe uploaded file contains no data.",
+                "*Empty file.*\nThe uploaded file contains no data.",
                 parse_mode="Markdown",
                 business_connection_id=business_connection_id,
                 bot=context.bot,
@@ -297,7 +297,7 @@ async def process_message(update, context, msg, business_connection_id=None):
         if ext in binary_extensions or b"\x00" in file_bytes:
             await safe_reply(
                 msg,
-                "❌ *Unsupported file type.*\nMocco only supports text-based files (e.g., code files, logs, text documents).",
+                "*Unsupported file type.*\nMocco only supports text-based files (e.g., code files, logs, text documents).",
                 parse_mode="Markdown",
                 business_connection_id=business_connection_id,
                 bot=context.bot,
@@ -315,7 +315,7 @@ async def process_message(update, context, msg, business_connection_id=None):
         if file_content is None:
             await safe_reply(
                 msg,
-                "❌ *Decoding failed.*\nCould not decode the file content. Please ensure it's a valid text file.",
+                "*Decoding failed.*\nCould not decode the file content. Please ensure it's a valid text file.",
                 parse_mode="Markdown",
                 business_connection_id=business_connection_id,
                 bot=context.bot,
@@ -367,7 +367,7 @@ async def process_message(update, context, msg, business_connection_id=None):
         logger.warning(f"No API key available for user {user_id}: {e}")
         await safe_reply(
             msg,
-            "🔑 *No API key is configured for chatting.*\n\n"
+            "*No API key is configured for chatting.*\n\n"
             "The bot owner hasn't set a fallback OpenRouter key, and you don't "
             "have one connected either. Run `/connect openrouter` (or `/connect openai`) "
             "to add your own — it stays encrypted and only you can use it.",
@@ -415,7 +415,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 hint = "/".join(p["key_hint"]) if p["key_hint"] else "(no fixed prefix)"
                 await safe_reply(
                     msg,
-                    f"❌ *That doesn't look like a valid {p['label']} key.*\n"
+                    f"*That doesn't look like a valid {p['label']} key.*\n"
                     f"Keys for {p['label']} typically start with: `{hint}`.\n"
                     f"Run `/connect {pending_provider}` to try again.",
                     parse_mode="Markdown",
@@ -425,7 +425,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Tell user we're verifying (verify_key is a network call, ~200-1000ms)
             await safe_reply(
                 msg,
-                f"🔍 Verifying your {p['emoji']} {p['label']} key live against {p['label']}…",
+                f"Verifying your {p['label']} key live against {p['label']}...",
                 parse_mode="Markdown",
             )
             result = await asyncio.to_thread(verify_key, pending_provider, key)
@@ -434,7 +434,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if result == VERIFY_TRANSIENT:
                     await safe_reply(
                         msg,
-                        f"⏳ *{p['label']} is temporarily unreachable.*\n"
+                        f"*{p['label']} is temporarily unreachable.*\n"
                         f"Their servers didn't respond (rate limit or outage).\n"
                         f"Please try `/connect {pending_provider}` again in a minute.",
                         parse_mode="Markdown",
@@ -442,7 +442,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await safe_reply(
                         msg,
-                        f"❌ *{p['label']} rejected that key.*\n"
+                        f"*{p['label']} rejected that key.*\n"
                         f"It may be revoked, mistyped, or missing required scopes.\n"
                         f"Run `/connect {pending_provider}` to try again.",
                         parse_mode="Markdown",
@@ -459,18 +459,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 await safe_reply(
                     msg,
-                    f"✅ *{p['emoji']} {p['label']} key verified and saved!*\n\n"
+                    f"*{p['label']} key verified and saved!*\n\n"
                     f"Your key is encrypted; only you can use it. "
                     f"Run `/keys` to see all your providers, `/model` to pick a model."
                     f"{routing_note}\n\n"
-                    f"⚠️ *Please delete your message above containing the key* so it isn't "
+                    f"*Please delete your message above containing the key* so it isn't "
                     f"visible in your chat history.",
                     parse_mode="Markdown",
                 )
             else:
                 await safe_reply(
                     msg,
-                    "❌ *Failed to save your key.*\nPlease try again with `/connect`.",
+                    "*Failed to save your key.*\nPlease try again with `/connect`.",
                     parse_mode="Markdown",
                 )
             return
@@ -488,7 +488,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             await safe_reply(
                 msg,
-                "⚠️ *That looks like an API key.*\n"
+                "*That looks like an API key.*\n"
                 "I won't save or process it because you didn't run `/connect` first.\n\n"
                 "Run `/connect` and pick the right provider to save your key properly.\n"
                 "_Please delete your message above containing the key._",
@@ -519,7 +519,7 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not msg:
         return
     await msg.reply_text(
-        "🗂 *Main Menu* — What would you like to do?",
+        "*Main Menu* — What would you like to do?",
         parse_mode="Markdown",
         reply_markup=build_menu_keyboard(),
     )
@@ -532,7 +532,7 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_history(msg.from_user.id)
     await safe_reply(
         msg,
-        "🔄 *Conversation cleared.*\nStarting fresh — what would you like to talk about?",
+        "*Conversation cleared.*\nStarting fresh — what would you like to talk about?",
         parse_mode="Markdown",
     )
 
@@ -545,7 +545,7 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not query:
         await safe_reply(
             msg,
-            "🔍 *Web Search*\n\n"
+            "*Web Search*\n\n"
             "Please provide a search query.\n"
             "_Usage:_ `/search <your query>`\n"
             "_Example:_ `/search latest AI news 2026`",
@@ -557,7 +557,7 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except TelegramError:
         pass
     search_text, _ = await asyncio.to_thread(web_search, query)
-    await safe_reply(msg, f"🔍 *Results for:* `{query}`\n\n{search_text}", parse_mode="Markdown")
+    await safe_reply(msg, f"*Results for:* `{query}`\n\n{search_text}", parse_mode="Markdown")
 
 
 async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -568,7 +568,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not prompt:
         await safe_reply(
             msg,
-            "🎨 *Image Generation*\n\n"
+            "*Image Generation*\n\n"
             "Describe the image you want to generate.\n"
             "_Usage:_ `/imagine <description>`\n\n"
             "*Tips for better results:*\n"
@@ -581,7 +581,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await safe_reply(
         msg,
-        f"🎨 Generating:\n_{prompt}_\n\nThis takes up to 30 seconds...",
+        f"Generating:\n_{prompt}_\n\nThis takes up to 30 seconds...",
         parse_mode="Markdown",
     )
     try:
@@ -595,13 +595,13 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_photo(
                 chat_id=msg.chat_id,
                 photo=img_data,
-                caption=f"🎨 {prompt[:900]}",
+                caption=f"{prompt[:900]}",
             )
         except TelegramError as e:
             logger.error(f"send_photo failed: {e}")
             await safe_reply(
                 msg,
-                "❌ *Image was generated but could not be sent.*\nPlease try again.",
+                "*Image was generated but could not be sent.*\nPlease try again.",
                 parse_mode="Markdown",
             )
     else:
@@ -610,7 +610,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not cfg.TOGETHER_API_KEY:
             await safe_reply(
                 msg,
-                "❌ *Image generation is not configured.*\n"
+                "*Image generation is not configured.*\n"
                 "The bot's TOGETHER_API_KEY is missing.\n\n"
                 "Run `/connect together` to add your own API key, "
                 "or ask the bot owner to enable it.",
@@ -619,7 +619,7 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await safe_reply(
                 msg,
-                "❌ *Image generation failed.*\n"
+                "*Image generation failed.*\n"
                 "This may be a temporary issue with the image service.\n"
                 "Please try again in a moment, or use a different prompt.",
                 parse_mode="Markdown",
@@ -634,7 +634,7 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         await safe_reply(
             msg,
-            "📝 *Summarize Text*\n\n"
+            "*Summarize Text*\n\n"
             "Paste the text you want summarized.\n"
             "_Usage:_ `/summarize <text>`",
             parse_mode="Markdown",
@@ -669,7 +669,7 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         word_count = len(text.split())
         await safe_reply(
             msg,
-            f"📝 *Summary* _({word_count} words → condensed)_\n\n{out}",
+            f"*Summary* _({word_count} words, condensed)_\n\n{out}",
             parse_mode="Markdown",
         )
     except Exception as e:
@@ -677,12 +677,12 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if isinstance(e, NoAPIKeyError):
             await safe_reply(
                 msg,
-                "🔑 *No API key is configured for summarizing.*\n"
+                "*No API key is configured for summarizing.*\n"
                 "Run `/connect` to add your own.",
                 parse_mode="Markdown",
             )
         else:
-            await safe_reply(msg, "❌ *Summarization failed.*\nPlease try again.", parse_mode="Markdown")
+            await safe_reply(msg, "*Summarization failed.*\nPlease try again.", parse_mode="Markdown")
 
 
 async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -692,7 +692,7 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await safe_reply(
             msg,
-            "🌐 *Translate Text*\n\n"
+            "*Translate Text*\n\n"
             "_Usage:_ `/translate <language> <text>`\n\n"
             "*Examples:*\n"
             "• `/translate Spanish Hello, how are you?`\n"
@@ -734,7 +734,7 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         out = resp.choices[0].message.content.strip()
         await safe_reply(
             msg,
-            f"🌐 *Translation to {lang}*\n\n"
+            f"*Translation to {lang}*\n\n"
             f"*Original:* _{text[:200]}_\n\n"
             f"*Result:* {out}",
             parse_mode="Markdown",
@@ -744,12 +744,12 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if isinstance(e, NoAPIKeyError):
             await safe_reply(
                 msg,
-                "🔑 *No API key is configured for translating.*\n"
+                "*No API key is configured for translating.*\n"
                 "Run `/connect` to add your own.",
                 parse_mode="Markdown",
             )
         else:
-            await safe_reply(msg, f"❌ *Translation to {lang} failed.*\nPlease try again.", parse_mode="Markdown")
+            await safe_reply(msg, f"*Translation to {lang} failed.*\nPlease try again.", parse_mode="Markdown")
 
 
 async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -760,7 +760,7 @@ async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not prompt:
         await safe_reply(
             msg,
-            "🧠 *Set Custom Personality*\n\n"
+            "*Set Custom Personality*\n\n"
             "Give me a role or custom instructions to follow.\n"
             "_Usage:_ `/setprompt <instructions>`\n\n"
             "*Examples:*\n"
@@ -775,7 +775,7 @@ async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_custom_prompt(msg.from_user.id, prompt)
     await safe_reply(
         msg,
-        f"✅ *Custom personality set.*\n\nI'll follow these instructions:\n_{prompt}_\n\n"
+        f"*Custom personality set.*\n\nI'll follow these instructions:\n_{prompt}_\n\n"
         f"Use `/clearprompt` to reset to default.",
         parse_mode="Markdown",
     )
@@ -789,7 +789,7 @@ async def cmd_clearprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_custom_prompt(msg.from_user.id, None)
     await safe_reply(
         msg,
-        "✅ *Custom personality removed.*\nI'm back to my default behavior.",
+        "*Custom personality removed.*\nI'm back to my default behavior.",
         parse_mode="Markdown",
     )
 
@@ -837,7 +837,7 @@ def _build_provider_keyboard(action: str, only_connected_for: Optional[int] = No
             pair = []
     if pair:
         rows.append(pair)
-    rows.append([InlineKeyboardButton("❌ Cancel", callback_data="key:cancel")])
+    rows.append([InlineKeyboardButton("Cancel", callback_data="key:cancel")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -847,6 +847,13 @@ def _short_model_label(m: dict) -> str:
         name = name[: -len(" (free)")]
     short = name.split(":")[-1].strip()
     return short[:32] if len(short) > 32 else short
+
+
+def _format_model_label(m: dict) -> str:
+    """Format a model for the picker: 'Model Name: free' or 'Model Name: paid'."""
+    base = _short_model_label(m)
+    suffix = ": free" if m.get("is_free") else ": paid"
+    return base + suffix
 
 
 def _format_ctx(n: int) -> str:
@@ -871,10 +878,9 @@ def _build_models_keyboard(
         if len(cb.encode("utf-8")) > 64:
             skipped += 1
             continue
-        marker = "✅ " if m["id"] == current else ""
-        free_tag = "" if m.get("is_free") else "🔒 "
-        ctx_tag = f" · {_format_ctx(m.get('context_length', 0))}" if m.get("context_length") else ""
-        label = f"{marker}{free_tag}{_short_model_label(m)}{ctx_tag}"
+        marker = "* " if m["id"] == current else "  "
+        ctx_tag = f" ({_format_ctx(m.get('context_length', 0))})" if m.get("context_length") else ""
+        label = f"{marker}{_format_model_label(m)}{ctx_tag}"
         if len(label) > 60:
             label = label[:60]
         rows.append([InlineKeyboardButton(
@@ -885,21 +891,21 @@ def _build_models_keyboard(
         logger.warning(f"Models page {page}: skipped {skipped} model(s) with overlong IDs")
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"model:page:{page - 1}"))
+        nav.append(InlineKeyboardButton("< Prev", callback_data=f"model:page:{page - 1}"))
     nav.append(InlineKeyboardButton(
-        f"📄 {page + 1}/{(total + MODELS_PAGE_SIZE - 1) // MODELS_PAGE_SIZE}",
+        f"Page {page + 1}/{(total + MODELS_PAGE_SIZE - 1) // MODELS_PAGE_SIZE}",
         callback_data="model:none",
     ))
     if end < total:
-        nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"model:page:{page + 1}"))
+        nav.append(InlineKeyboardButton("Next >", callback_data=f"model:page:{page + 1}"))
     rows.append(nav)
     action_row = [
-        InlineKeyboardButton("🔑 Connect key", callback_data="model:connect"),
-        InlineKeyboardButton("🔄 Refresh", callback_data="model:refresh"),
+        InlineKeyboardButton("Connect key", callback_data="model:connect"),
+        InlineKeyboardButton("Refresh", callback_data="model:refresh"),
     ]
     if has_user_key:
-        action_row.append(InlineKeyboardButton("🚪 Disconnect", callback_data="model:disconnect"))
-    action_row.append(InlineKeyboardButton("↩️ Reset model", callback_data="model:reset"))
+        action_row.append(InlineKeyboardButton("Disconnect", callback_data="model:disconnect"))
+    action_row.append(InlineKeyboardButton("Reset model", callback_data="model:reset"))
     rows.append(action_row)
     return InlineKeyboardMarkup(rows)
 
@@ -920,7 +926,7 @@ async def cmd_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except EncryptionKeyMissing as e:
         await safe_reply(
             msg,
-            f"❌ *Key storage is not available right now.*\n{str(e)}",
+            f"*Key storage is not available right now.*\n{str(e)}",
             parse_mode="Markdown",
         )
         return
@@ -931,7 +937,7 @@ async def cmd_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await msg.reply_text(
-        "🔑 *Connect a provider*\n"
+        "*Connect a provider*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "Pick which API key you want to add.\n"
         "Your key is *verified live*, then *encrypted* and stored — only you can use it.\n\n"
@@ -946,7 +952,7 @@ async def _prompt_for_provider_key(msg, user_id: int, provider: str, via_callbac
     p = PROVIDERS[provider]
     _pending_set(user_id, provider)
     text = (
-        f"🔑 *Connect {p['emoji']} {p['label']}*\n"
+        f"*Connect {p['label']}*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{p['blurb']}\n\n"
         f"*How to get one:*\n"
@@ -962,7 +968,7 @@ async def _prompt_for_provider_key(msg, user_id: int, provider: str, via_callbac
             parse_mode="Markdown",
             disable_web_page_preview=True,
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("❌ Cancel", callback_data="key:cancel")]
+                [InlineKeyboardButton("Cancel", callback_data="key:cancel")]
             ]),
         )
     else:
@@ -984,20 +990,20 @@ async def cmd_disconnect(update: Update, context: ContextTypes.DEFAULT_TYPE):
             p = PROVIDERS[provider]
             await safe_reply(
                 msg,
-                f"🚪 *Disconnected {p['emoji']} {p['label']}.*\nYour stored key has been removed.",
+                f"*Disconnected {p['label']}.*\nYour stored key has been removed.",
                 parse_mode="Markdown",
             )
         else:
-            await safe_reply(msg, "ℹ️ You don't have that provider connected.", parse_mode="Markdown")
+            await safe_reply(msg, "You don't have that provider connected.", parse_mode="Markdown")
         return
 
     connected = user_connected_providers(user_id)
     if not connected:
-        await safe_reply(msg, "ℹ️ You don't have any provider keys connected.", parse_mode="Markdown")
+        await safe_reply(msg, "You don't have any provider keys connected.", parse_mode="Markdown")
         return
 
     await msg.reply_text(
-        "🚪 *Disconnect a provider*\n━━━━━━━━━━━━━━━━━━━━\nPick which key to remove:",
+        "*Disconnect a provider*\n━━━━━━━━━━━━━━━━━━━━\nPick which key to remove:",
         parse_mode="Markdown",
         reply_markup=_build_provider_keyboard("disconnect", only_connected_for=user_id),
     )
@@ -1010,11 +1016,11 @@ async def cmd_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = msg.from_user.id
     ensure_user(user_id, msg.from_user.username, msg.from_user.first_name)
     connected = set(user_connected_providers(user_id))
-    lines = ["🔑 *Your connected providers*", "━━━━━━━━━━━━━━━━━━━━"]
+    lines = ["*Your connected providers*", "━━━━━━━━━━━━━━━━━━━━"]
     for name, p in PROVIDERS.items():
-        mark = "✅" if name in connected else "⚪"
+        mark = "[x]" if name in connected else "[ ]"
         suffix = "*connected*" if name in connected else "_not connected_"
-        lines.append(f"{mark} {p['emoji']} {p['label']} — {suffix}")
+        lines.append(f"{mark} {p['label']} — {suffix}")
     lines.append("")
     lines.append("Use `/connect` to add more, `/disconnect` to remove.")
     await safe_reply(msg, "\n".join(lines), parse_mode="Markdown")
@@ -1026,7 +1032,7 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user_id = msg.from_user.id
     if PENDING_KEY.pop(user_id, None):
-        await safe_reply(msg, "❌ Cancelled. No key was saved.", parse_mode="Markdown")
+        await safe_reply(msg, "Cancelled. No key was saved.", parse_mode="Markdown")
     else:
         await safe_reply(msg, "Nothing to cancel.", parse_mode="Markdown")
 
@@ -1044,7 +1050,7 @@ async def callback_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "cancel":
         PENDING_KEY.pop(user_id, None)
-        await query.edit_message_text("❌ Cancelled. No changes made.")
+        await query.edit_message_text("Cancelled. No changes made.")
         return
 
     if len(parts) < 3 or not is_known_provider(parts[2]):
@@ -1059,11 +1065,11 @@ async def callback_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if delete_user_api_key(user_id, provider):
             p = PROVIDERS[provider]
             await query.edit_message_text(
-                f"🚪 *Disconnected {p['emoji']} {p['label']}.*\nYour stored key has been removed.",
+                f"*Disconnected {p['label']}.*\nYour stored key has been removed.",
                 parse_mode="Markdown",
             )
         else:
-            await query.edit_message_text("ℹ️ That provider wasn't connected.", parse_mode="Markdown")
+            await query.edit_message_text("That provider wasn't connected.", parse_mode="Markdown")
         return
 
 
@@ -1106,24 +1112,24 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not models:
         await safe_reply(
             msg,
-            "❌ *Could not load the model list right now.*\nPlease try again in a moment.",
+            "*Could not load the model list right now.*\nPlease try again in a moment.",
             parse_mode="Markdown",
         )
         return
 
     if connected:
-        provider_chips = " ".join(f"{PROVIDERS[p]['emoji']}" for p in connected)
-        key_status = f"🔑 *Your keys:* {provider_chips} ({len(connected)} connected)"
+        provider_chips = ", ".join(PROVIDERS[p]['label'] for p in connected)
+        key_status = f"*Your keys:* {provider_chips} ({len(connected)} connected)"
     else:
-        key_status = "🔓 *Your keys:* none connected (free models only)"
+        key_status = "*Your keys:* none connected (free models only)"
     body = (
-        f"🤖 *Choose your AI model*\n"
+        f"*Choose your AI model*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"*Current:* `{current}`\n"
         f"*Default:* `{default}`\n"
         f"{key_status}\n\n"
-        f"Free models work with the bot's key. 🔒 models need *your own* key for the "
-        f"matching provider (or any OpenRouter key).\n"
+        f"Models labeled `free` work with the bot's key. Models labeled `paid` need *your own* key "
+        f"for the matching provider (or any OpenRouter key).\n"
         f"Use `/model reset` to go back to the default. Use `/keys` to manage providers."
     )
     await msg.reply_text(
@@ -1147,7 +1153,7 @@ async def callback_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "reset":
         clear_history(user_id)
         await query.message.reply_text(
-            "🔄 *Conversation cleared.*\nStarting fresh — what would you like to talk about?",
+            "*Conversation cleared.*\nStarting fresh — what would you like to talk about?",
             parse_mode="Markdown",
         )
         return
@@ -1160,21 +1166,21 @@ async def callback_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     hints = {
         "search": (
-            "🔍 *Web Search*\n\n"
+            "*Web Search*\n\n"
             "Type:\n`/search <your query>`\n\n"
             "_Example:_ `/search latest AI news 2026`"
         ),
         "imagine": (
-            "🎨 *Image Generation*\n\n"
+            "*Image Generation*\n\n"
             "Type:\n`/imagine <description>`\n\n"
             "_Example:_ `/imagine a futuristic city at sunset, cinematic, 4K`"
         ),
         "summarize": (
-            "📝 *Summarize*\n\n"
+            "*Summarize*\n\n"
             "Type:\n`/summarize <text to summarize>`"
         ),
         "setprompt": (
-            "🧠 *Set Custom Personality*\n\n"
+            "*Set Custom Personality*\n\n"
             "Type:\n`/setprompt <instructions>`\n\n"
             "_Example:_ `/setprompt Act as a senior Python developer.`"
         ),
@@ -1201,7 +1207,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "connect":
         await query.edit_message_text(
-            "🔑 *Connect a provider*\n\n"
+            "*Connect a provider*\n\n"
             "Pick which API key you want to add.\n"
             "Your key is verified live, then encrypted and stored.",
             parse_mode="Markdown",
@@ -1214,12 +1220,12 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not connected:
             await query.answer("No keys connected", show_alert=False)
             await query.edit_message_text(
-                "ℹ️ You don't have any provider keys connected.",
+                "You don't have any provider keys connected.",
                 parse_mode="Markdown",
             )
             return
         await query.edit_message_text(
-            "🚪 *Disconnect a provider*\n\nPick which key to remove:",
+            "*Disconnect a provider*\n\nPick which key to remove:",
             parse_mode="Markdown",
             reply_markup=_build_provider_keyboard("disconnect", only_connected_for=user_id),
         )
@@ -1232,22 +1238,22 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         connected = user_connected_providers(user_id)
         if not models:
             await query.edit_message_text(
-                "❌ *Could not load the model list right now.*\nPlease try again in a moment.",
+                "*Could not load the model list right now.*\nPlease try again in a moment.",
                 parse_mode="Markdown",
             )
             return
         if connected:
-            provider_chips = " ".join(f"{PROVIDERS[p]['emoji']}" for p in connected)
-            key_status = f"🔑 *Your keys:* {provider_chips} ({len(connected)} connected)"
+            provider_chips = ", ".join(PROVIDERS[p]['label'] for p in connected)
+            key_status = f"*Your keys:* {provider_chips} ({len(connected)} connected)"
         else:
-            key_status = "🔓 *Your keys:* none connected (free models only)"
+            key_status = "*Your keys:* none connected (free models only)"
         body = (
-            f"🤖 *Choose your AI model*\n"
+            f"*Choose your AI model*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"*Current:* `{current}`\n"
             f"*Default:* `{load_config().CHAT_MODEL}`\n"
             f"{key_status}\n\n"
-            f"Free models work with the bot's key. 🔒 models need *your own* key."
+            f"Models labeled `free` work with the bot's key. Models labeled `paid` need *your own* key."
         )
         await query.edit_message_text(
             body,
@@ -1267,7 +1273,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_chat_model(user_id, None)
         default = load_config().CHAT_MODEL
         await query.edit_message_text(
-            f"↩️ *Model reset to default.*\n\nYou're now using: `{default}`",
+            f"*Model reset to default.*\n\nYou're now using: `{default}`",
             parse_mode="Markdown",
         )
         return
@@ -1295,16 +1301,16 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if model_info and not model_info["is_free"] and not can_use_paid_model(user_id, model_id):
             await query.answer("Paid model — connect a matching key first", show_alert=True)
             await query.message.reply_text(
-                "🔒 *That model requires your own API key.*\n\n"
+                "*That model requires your own API key.*\n\n"
                 "Connect either an *OpenRouter* key (works for any model) or the "
                 "direct provider key for this model (cheaper). Tap `/connect`.\n"
-                "Or pick a model not marked 🔒.",
+                "Or pick a model not marked `paid`.",
                 parse_mode="Markdown",
             )
             return
         set_chat_model(user_id, model_id)
         await query.edit_message_text(
-            f"✅ *Model set!*\n\nYou're now using: `{model_id}`\n\n"
+            f"*Model set!*\n\nYou're now using: `{model_id}`\n\n"
             f"_Tip: `/model reset` to go back to default, `/keys` to manage your providers._",
             parse_mode="Markdown",
         )
@@ -1319,14 +1325,14 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active = users - blk
     await safe_reply(
         msg,
-        f"📊 *Mocco — Live Stats*\n"
+        f"*Mocco — Live Stats*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 Total users:     *{users}*\n"
-        f"✅ Active users:    *{active}*\n"
-        f"🚫 Blacklisted:    *{blk}*\n"
-        f"💬 Total messages: *{msgs}*\n"
+        f"Total users:     *{users}*\n"
+        f"Active users:    *{active}*\n"
+        f"Blacklisted:    *{blk}*\n"
+        f"Total messages: *{msgs}*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🕒 {datetime.now(timezone.utc).strftime('%B %d, %Y  %H:%M UTC')}",
+        f"{datetime.now(timezone.utc).strftime('%B %d, %Y  %H:%M UTC')}",
         parse_mode="Markdown",
     )
 
@@ -1341,20 +1347,20 @@ async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         target_id = int(context.args[0])
     except ValueError:
-        await safe_reply(msg, "❌ Invalid user ID.")
+        await safe_reply(msg, "Invalid user ID.")
         return
     cfg = load_config()
     if target_id == msg.from_user.id or target_id == cfg.OWNER_ID or target_id == cfg.BOT_ID:
         await safe_reply(
             msg,
-            "❌ You can't blacklist yourself, the bot owner, or the bot itself.",
+            "You can't blacklist yourself, the bot owner, or the bot itself.",
             parse_mode="Markdown",
         )
         return
     if set_blacklist(target_id, True):
-        await safe_reply(msg, f"🚫 User `{target_id}` blacklisted.", parse_mode="Markdown")
+        await safe_reply(msg, f"User `{target_id}` blacklisted.", parse_mode="Markdown")
     else:
-        await safe_reply(msg, "❌ Failed to blacklist user.")
+        await safe_reply(msg, "Failed to blacklist user.")
 
 
 async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1367,12 +1373,12 @@ async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         target_id = int(context.args[0])
     except ValueError:
-        await safe_reply(msg, "❌ Invalid user ID.")
+        await safe_reply(msg, "Invalid user ID.")
         return
     if set_blacklist(target_id, False):
-        await safe_reply(msg, f"✅ User `{target_id}` unblacklisted.", parse_mode="Markdown")
+        await safe_reply(msg, f"User `{target_id}` unblacklisted.", parse_mode="Markdown")
     else:
-        await safe_reply(msg, "❌ Failed to update user.")
+        await safe_reply(msg, "Failed to update user.")
 
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1387,7 +1393,7 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_ids:
         await safe_reply(msg, "No active users found.")
         return
-    await safe_reply(msg, f"📢 Broadcasting to {len(user_ids)} users...")
+    await safe_reply(msg, f"Broadcasting to {len(user_ids)} users...")
     sent = 0
     failed = 0
     sem = asyncio.Semaphore(BROADCAST_CHUNK)
@@ -1396,7 +1402,7 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nonlocal sent, failed
         async with sem:
             try:
-                await context.bot.send_message(chat_id=uid, text=f"📢 {text}")
+                await context.bot.send_message(chat_id=uid, text=f"{text}")
                 sent += 1
             except Exception:
                 failed += 1
@@ -1404,7 +1410,7 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.gather(*[send_one(uid) for uid in user_ids])
     await safe_reply(
         msg,
-        f"✅ *Broadcast complete.*\nSent: *{sent}* | Failed: *{failed}*",
+        f"*Broadcast complete.*\nSent: *{sent}* | Failed: *{failed}*",
         parse_mode="Markdown",
     )
 

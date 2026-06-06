@@ -13,7 +13,6 @@ VERIFY_BAD_REQUEST = "bad_request"  # 400 / 404 — unusual; treat as rejected
 PROVIDERS = {
     "openrouter": {
         "label":   "OpenRouter",
-        "emoji":   "🌐",
         "base_url": "https://openrouter.ai/api/v1",
         "key_hint": ("sk-or-", "sk-"),
         "verify_path":   "/auth/key",
@@ -26,7 +25,6 @@ PROVIDERS = {
     },
     "openai": {
         "label":   "OpenAI",
-        "emoji":   "🟢",
         "base_url": "https://api.openai.com/v1",
         "key_hint": ("sk-",),
         "verify_path":   "/models",
@@ -39,7 +37,6 @@ PROVIDERS = {
     },
     "anthropic": {
         "label":   "Anthropic",
-        "emoji":   "🟠",
         "base_url": "https://api.anthropic.com/v1",
         "key_hint": ("sk-ant-",),
         "verify_path":   "/models",
@@ -55,7 +52,6 @@ PROVIDERS = {
     },
     "google": {
         "label":   "Google AI (Gemini)",
-        "emoji":   "🔵",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "key_hint": ("AIza",),
         "verify_path":   "/models",
@@ -68,7 +64,6 @@ PROVIDERS = {
     },
     "groq": {
         "label":   "Groq",
-        "emoji":   "⚡",
         "base_url": "https://api.groq.com/openai/v1",
         "key_hint": ("gsk_",),
         "verify_path":   "/models",
@@ -81,7 +76,6 @@ PROVIDERS = {
     },
     "together": {
         "label":   "Together AI",
-        "emoji":   "🤝",
         "base_url": "https://api.together.xyz/v1",
         "key_hint": (),
         "verify_path":   "/models",

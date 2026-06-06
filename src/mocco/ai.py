@@ -212,7 +212,7 @@ def web_search(query: str) -> Tuple[str, list]:
     cfg = load_config()
     if not cfg.SERPER_API_KEY:
         return (
-            "🔍 *Web search is not configured by the bot owner.*\n"
+            "*Web search is not configured by the bot owner.*\n"
             "The bot's SERPER_API_KEY is missing, so live web search is disabled.\n\n"
             "If you have your own Serper key, ask the bot owner to wire it up "
             "or open a feature request.",
@@ -233,13 +233,13 @@ def web_search(query: str) -> Tuple[str, list]:
             ab = data["answerBox"]
             answer = ab.get("answer") or ab.get("snippet") or ""
             if answer:
-                lines.append(f"📌 Direct Answer: {answer}")
+                lines.append(f"Direct Answer: {answer}")
                 raw.append({"title": "Answer Box", "snippet": answer})
         organic = data.get("organic", [])[:4]
         if organic:
             if lines:
                 lines.append("")
-            lines.append("🔗 Top Results:")
+            lines.append("Top Results:")
             for i, item in enumerate(organic, 1):
                 title = item.get("title", "").strip()
                 snippet = item.get("snippet", "").strip()

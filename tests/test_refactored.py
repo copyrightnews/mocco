@@ -27,7 +27,7 @@ def test_providers_registry_complete():
     expected = {"openrouter", "openai", "anthropic", "google", "groq", "together"}
     assert set(providers.PROVIDERS.keys()) == expected
     required_fields = {
-        "label", "emoji", "base_url", "key_hint",
+        "label", "base_url", "key_hint",
         "verify_path", "verify_method", "verify_headers",
         "direct_route_prefix", "model_strip_prefix", "signup_url", "blurb",
     }
@@ -177,6 +177,33 @@ def test_looks_like_provider_key_includes_sk_prefix():
     assert providers.looks_like_provider_key("openai", "sk-" + "x" * 48) is True
     # OpenAI sk- + too short → fail
     assert providers.looks_like_provider_key("openai", "sk-short") is False
+
+
+def test_format_model_label_free():
+    """Free models should be labeled 'Name: free'."""
+    m = {"id": "openai/gpt-4o", "name": "GPT-4o", "is_free": True}
+    assert handlers._format_model_label(m) == "GPT-4o: free"
+
+
+def test_format_model_label_paid():
+    """Paid models should be labeled 'Name: paid'."""
+    m = {"id": "openai/gpt-4o", "name": "GPT-4o", "is_free": False}
+    assert handlers._format_model_label(m) == "GPT-4o: paid"
+
+
+def test_format_model_label_strips_free_suffix():
+    """OpenRouter's 'Name (free)' suffix should be stripped before suffixing."""
+    m = {"id": "minimax/minimax-m2.5:free", "name": "Minimax M2.5 (free)", "is_free": True}
+    assert handlers._format_model_label(m) == "Minimax M2.5: free"
+
+
+def test_no_emojis_in_user_facing_strings():
+    """Sanity: no emojis in handlers module's top-level user-facing strings."""
+    import re
+    emoji_re = re.compile(r"[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U0001F2FF]")
+    for name in ("WELCOME_TEXT", "HELP_TEXT"):
+        text = getattr(handlers, name)
+        assert not emoji_re.search(text), f"{name} still contains an emoji: {emoji_re.findall(text)}"
 
 
 def test_utils_split_message():

@@ -29,12 +29,12 @@ On startup, the bot:
 ## Multi-provider, per-user API keys
 
 Each user runs `/connect` to open a provider picker. Supported providers:
-- 🌐 OpenRouter — one key unlocks the full OpenRouter catalog (~300+ models)
-- 🟢 OpenAI — direct billing; auto-routed for any `openai/...` model the user picks
-- 🟠 Anthropic — verified & stored (direct routing falls back to OpenRouter for now)
-- 🔵 Google AI (Gemini) — verified & stored
-- ⚡ Groq — verified & stored
-- 🤝 Together AI — verified & stored
+- OpenRouter — one key unlocks the full OpenRouter catalog (~300+ models)
+- OpenAI — direct billing; auto-routed for any `openai/...` model the user picks
+- Anthropic — verified & stored (direct routing falls back to OpenRouter for now)
+- Google AI (Gemini) — verified & stored
+- Groq — verified & stored
+- Together AI — verified & stored
 
 - Pasted keys are *verified live* against each provider's API (`GET /models` or `/auth/key`) before saving. Revoked, mistyped, or fake keys are rejected at `/connect` time, not later during chat.
 - 5xx / 429 / network errors from the provider are treated as transient ("please try again in a minute") rather than as a rejected key.
@@ -49,9 +49,9 @@ Each user runs `/connect` to open a provider picker. Supported providers:
 
 ## Model picker
 
-- `/model` opens the full OpenRouter catalog, cached for 1 hour, refreshable with the 🔄 button.
+- `/model` opens the full OpenRouter catalog, cached for 1 hour, refreshable with the Refresh button.
 - Free models work with the bot's key (or with any user-connected OpenRouter key).
-- Paid models marked 🔒 require an appropriate user key (any OpenRouter key OR the matching direct-provider key). Without one, `/model` refuses the pick with an inline alert.
+- Paid models (labeled `paid` in the picker) require an appropriate user key (any OpenRouter key OR the matching direct-provider key). Without one, `/model` refuses the pick with an inline alert.
 - Selection is stored in `users.chat_model`. The bot resolves the model per request with priority: `user choice → CHAT_MODEL env → built-in default`.
 - Models whose IDs would make the `callback_data` exceed Telegram's 64-byte limit are silently skipped (logged as a warning).
 
