@@ -32,7 +32,6 @@ from .db import (
 from .ai import (
     get_ai_reply,
     web_search,
-    generate_image,
     get_client_for_chat,
     resolve_model,
     user_has_key,
@@ -130,7 +129,6 @@ def build_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("Search Web",         callback_data="menu:search"),
         ],
         [
-            InlineKeyboardButton("Generate Image",     callback_data="menu:imagine"),
             InlineKeyboardButton("Summarize",          callback_data="menu:summarize"),
         ],
         [
@@ -568,72 +566,6 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
     search_text, _ = await asyncio.to_thread(web_search, query)
     await safe_reply(msg, f"*Results for:* `{query}`\n\n{search_text}", parse_mode="Markdown")
-
-
-async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    if not msg:
-        return
-    prompt = " ".join(context.args).strip()
-    if not prompt:
-        await safe_reply(
-            msg,
-            "*Image Generation*\n\n"
-            "Describe the image you want to generate.\n"
-            "_Usage:_ `/imagine <description>`\n\n"
-            "*Tips for better results:*\n"
-            "• Be specific and descriptive\n"
-            "• Add style keywords: _cinematic, realistic, watercolor, 4K_\n"
-            "• Add lighting: _golden hour, studio lighting, neon_\n\n"
-            "_Example:_ `/imagine a futuristic city at sunset, cinematic lighting, 4K`",
-            parse_mode="Markdown",
-        )
-        return
-    await safe_reply(
-        msg,
-        f"Generating:\n_{prompt}_\n\nThis takes up to 30 seconds...",
-        parse_mode="Markdown",
-    )
-    try:
-        await context.bot.send_chat_action(chat_id=msg.chat_id, action=ChatAction.UPLOAD_PHOTO)
-    except TelegramError:
-        pass
-    res = await asyncio.to_thread(generate_image, prompt)
-    if res:
-        img_data, is_url = res
-        try:
-            await context.bot.send_photo(
-                chat_id=msg.chat_id,
-                photo=img_data,
-                caption=f"{prompt[:900]}",
-            )
-        except TelegramError as e:
-            logger.error(f"send_photo failed: {e}")
-            await safe_reply(
-                msg,
-                "*Image was generated but could not be sent.*\nPlease try again.",
-                parse_mode="Markdown",
-            )
-    else:
-        from .config import load_config
-        cfg = load_config()
-        if not cfg.TOGETHER_API_KEY:
-            await safe_reply(
-                msg,
-                "*Image generation is not configured.*\n"
-                "The bot's TOGETHER_API_KEY is missing.\n\n"
-                "Run `/connect together` to add your own API key, "
-                "or ask the bot owner to enable it.",
-                parse_mode="Markdown",
-            )
-        else:
-            await safe_reply(
-                msg,
-                "*Image generation failed.*\n"
-                "This may be a temporary issue with the image service.\n"
-                "Please try again in a moment, or use a different prompt.",
-                parse_mode="Markdown",
-            )
 
 
 async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1179,11 +1111,6 @@ async def callback_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "*Web Search*\n\n"
             "Type:\n`/search <your query>`\n\n"
             "_Example:_ `/search latest AI news 2026`"
-        ),
-        "imagine": (
-            "*Image Generation*\n\n"
-            "Type:\n`/imagine <description>`\n\n"
-            "_Example:_ `/imagine a futuristic city at sunset, cinematic, 4K`"
         ),
         "summarize": (
             "*Summarize*\n\n"
