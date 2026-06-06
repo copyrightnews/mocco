@@ -144,9 +144,9 @@ export function ProfilePage() {
           </Field>
           <Field label="Interests (comma-separated)">
             <input
-              value={profile.interests.join(", ")}
+              value={(profile.interests ?? []).join(", ")}
               onChange={(e) => setAll({ interests: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-              onBlur={() => patch({ interests: profile.interests })}
+              onBlur={() => patch({ interests: profile.interests ?? [] })}
               className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2 text-sm"
             />
           </Field>
