@@ -3,7 +3,6 @@ import { TelegramProvider } from "./components/TelegramProvider";
 import { AppShell } from "./components/AppShell";
 import { Toast } from "./components/Toast";
 import { Outlet } from "react-router-dom";
-import React from "react";
 
 function ShellWrapper() {
   return (

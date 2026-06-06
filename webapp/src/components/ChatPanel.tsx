@@ -15,7 +15,6 @@ export function ChatPanel() {
   const setInput = useChatStore((s) => s.setInput);
   const streaming = useChatStore((s) => s.streaming);
   const setAbort = useChatStore((s) => s.setAbort);
-  const cancel = useChatStore((s) => s.cancel);
   const hydrate = useChatStore((s) => s.hydrate);
   const appendDelta = useChatStore((s) => s.appendDelta);
   const markComplete = useChatStore((s) => s.markComplete);
