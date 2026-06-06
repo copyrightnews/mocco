@@ -12,7 +12,7 @@ export async function* streamChat(
   body: { messages: { role: "system" | "user" | "assistant"; content: string }[] },
   signal: AbortSignal,
 ): AsyncGenerator<ChatFrame> {
-  const res = await fetch(`${BASE}/v1/chat/stream`, {
+  const res = await fetch(`${BASE}/chat/stream`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
