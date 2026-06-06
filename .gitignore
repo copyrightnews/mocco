@@ -21,3 +21,8 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+webapp/.env
+webapp/.env.local
+webapp/dist
+webapp/node_modules
