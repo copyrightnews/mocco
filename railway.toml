@@ -1,0 +1,11 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python bot.py"
+restartPolicyType = "ON_FAILURE"
+
+# The api service is configured in the Railway dashboard as a separate
+# service pointing at Dockerfile.api, sharing the same env vars as the bot
+# (except those listed in the spec as api-only).
