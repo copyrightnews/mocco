@@ -4,7 +4,7 @@ import asyncio
 import tempfile
 from typing import List, Optional
 from datetime import datetime, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.constants import ChatAction
 from telegram.ext import (
     MessageHandler,
@@ -55,6 +55,8 @@ from .utils import is_rate_limited, split_message
 logger = logging.getLogger("mocco")
 
 BROADCAST_CHUNK = 25
+
+TMA_URL = os.environ.get("TMA_URL", "")  # e.g. https://mocco.vercel.app
 
 WELCOME_TEXT = (
     "*Hi, I'm Mocco* — your smart, fast, and reliable AI assistant.\n"
@@ -507,7 +509,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     ensure_user(msg.from_user.id, msg.from_user.username, msg.from_user.first_name)
     clear_history(msg.from_user.id)
-    await msg.reply_text(WELCOME_TEXT, parse_mode="Markdown", reply_markup=build_menu_keyboard())
+    kb = None
+    if TMA_URL:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url=TMA_URL))]
+        ])
+    await msg.reply_text(WELCOME_TEXT, parse_mode="Markdown", reply_markup=kb)
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
