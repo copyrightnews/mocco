@@ -17,7 +17,7 @@ from mocco.config import load_config
 from mocco.db import init_db
 
 from api.errors import install_error_handlers
-from api.routes import health, me, profile, models, keys, history, chat
+from api.routes import chat, health, history, keys, me, models, profile
 
 
 logging.basicConfig(
@@ -52,7 +52,12 @@ def create_app() -> FastAPI:
     install_error_handlers(app)
 
     app.include_router(health.router, prefix="/v1")
-    # me, profile, models, keys, history, chat are added in later tasks.
+    app.include_router(me.router, prefix="/v1")
+    app.include_router(profile.router, prefix="/v1")
+    app.include_router(models.router, prefix="/v1")
+    app.include_router(keys.router, prefix="/v1")
+    app.include_router(history.router, prefix="/v1")
+    app.include_router(chat.router, prefix="/v1")
     return app
 
 
