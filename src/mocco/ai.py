@@ -1,5 +1,4 @@
 import logging
-import base64
 import time
 from typing import List, Tuple, Optional
 from datetime import datetime, timezone
@@ -260,61 +259,6 @@ def web_search(query: str) -> Tuple[str, list]:
 def needs_search(text: str) -> bool:
     t = text.lower()
     return any(k in t for k in SEARCH_KEYWORDS)
-
-
-def generate_image(prompt: str) -> Optional[Tuple[bytes | str, bool]]:
-    """Generates an image from Together AI API.
-    Returns:
-        (image_bytes, False) if payload is base64
-        (image_url, True) if payload is a URL
-        None if generation failed (or TOGETHER_API_KEY not configured).
-    """
-    cfg = load_config()
-    if not cfg.TOGETHER_API_KEY:
-        logger.info("generate_image skipped: TOGETHER_API_KEY not configured")
-        return None
-    models = [
-        {"model": "black-forest-labs/FLUX.1-schnell", "steps": 4},
-        {"model": "stabilityai/stable-diffusion-xl-base-1.0", "steps": 20},
-    ]
-    for m in models:
-        try:
-            logger.info(f"Trying image model: {m['model']}")
-            r = requests.post(
-                "https://api.together.xyz/v1/images/generations",
-                headers={
-                    "Authorization": f"Bearer {cfg.TOGETHER_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model":  m["model"],
-                    "prompt": prompt,
-                    "steps":  m["steps"],
-                    "n":      1,
-                    "width":  1024,
-                    "height": 1024,
-                },
-                timeout=120,
-            )
-            logger.info(f"Together status: {r.status_code} | {r.text[:300]}")
-            r.raise_for_status()
-            data = r.json()
-            if "data" in data and data["data"]:
-                item = data["data"][0]
-                if item.get("b64_json"):
-                    img_bytes = base64.b64decode(item["b64_json"])
-                    logger.info(f"Image success (base64) with {m['model']}")
-                    return img_bytes, False
-                elif item.get("url"):
-                    logger.info(f"Image success (URL) with {m['model']}")
-                    return item["url"], True
-        except requests.exceptions.Timeout:
-            logger.error(f"Model {m['model']} timed out")
-            continue
-        except Exception as e:
-            logger.error(f"Model {m['model']} failed: {e}")
-            continue
-    return None
 
 
 def get_system_prompt(user_id: Optional[int] = None) -> str:
