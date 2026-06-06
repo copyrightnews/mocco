@@ -26,7 +26,6 @@ export function ChatPanel() {
   const [resetOpen, setResetOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Hydrate from /v1/history on mount.
   useEffect(() => {
     if (!telegramId) return;
     (async () => {
@@ -39,7 +38,6 @@ export function ChatPanel() {
     })();
   }, [telegramId, hydrate, pushToast]);
 
-  // Auto-scroll to bottom.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages.length, messages[messages.length - 1]?.content]);
@@ -100,44 +98,76 @@ export function ChatPanel() {
     }
   }
 
+  const empty = messages.length === 0;
+
   return (
-    <div className="flex flex-col h-full">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto pt-2 pb-32">
-        {messages.length === 0 && (
-          <div className="px-4 pt-12 text-center">
-            <h2 className="text-xl font-semibold text-tg-text mb-4">How can I help you today?</h2>
-            <QuickActionChips onReset={() => setResetOpen(true)} />
+    <div className="flex flex-col h-full bg-tg-bg">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto pb-32">
+        {empty && (
+          <div className="px-5 pt-10">
+            <h1 className="text-[32px] leading-[1.1] font-bold tracking-tight text-tg-text">
+              How can I help
+              <br />
+              you today?
+            </h1>
+            <p className="mt-3 text-[15px] text-tg-hint">
+              Ask anything or pick a quick action below.
+            </p>
           </div>
         )}
         {messages.map((m, i) => (
           <MessageBubble key={i} m={m} />
         ))}
       </div>
-      <div className="fixed bottom-14 left-0 right-0 bg-tg-bg border-t border-tg-hint/20">
-        {messages.length > 0 && <QuickActionChips onReset={() => setResetOpen(true)} />}
-        <div className="flex items-end gap-2 p-3">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder="Ask anything…"
-            rows={1}
-            className="flex-1 resize-none rounded-2xl px-3 py-2 bg-tg-secondary-bg text-tg-text outline-none text-sm max-h-32"
-          />
-          <button
-            onClick={send}
-            disabled={!input.trim() || streaming}
-            className="px-3 py-2 rounded-2xl bg-tg-button text-tg-button-text text-sm font-medium disabled:opacity-50"
-          >
-            Send
-          </button>
+
+      <div className="fixed inset-x-0 bottom-16 z-30 bg-gradient-to-t from-tg-bg via-tg-bg to-transparent pt-4">
+        {messages.length > 0 && (
+          <div className="overflow-x-auto">
+            <div className="flex gap-2 px-4 pb-2 w-max">
+              <button
+                onClick={() => setResetOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-tg-secondary-bg shadow-pill text-tg-text text-[13px] font-medium active:scale-[0.98]"
+              >
+                <span>Reset</span>
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="bg-tg-bg/95 backdrop-blur-md px-3 pt-2 pb-3">
+          <div className="mocco-card flex items-center gap-2 px-2 py-1.5">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              placeholder="Ask anything…"
+              rows={1}
+              className="flex-1 resize-none bg-transparent text-tg-text outline-none text-[15px] px-2.5 py-1.5 max-h-32 placeholder:text-tg-hint"
+            />
+            <button
+              onClick={send}
+              disabled={!input.trim() || streaming}
+              aria-label="Send"
+              className="w-9 h-9 rounded-full bg-tg-button text-tg-button-text flex items-center justify-center disabled:opacity-30 active:scale-95 transition-all shrink-0"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 13V3M3 8l5-5 5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
+
+      {empty && (
+        <div className="fixed inset-x-0 bottom-32 z-20">
+          <QuickActionChips onReset={() => setResetOpen(true)} />
+        </div>
+      )}
+
       <ResetConfirmModal open={resetOpen} onCancel={() => setResetOpen(false)} onConfirm={doReset} />
     </div>
   );

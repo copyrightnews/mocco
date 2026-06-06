@@ -4,7 +4,7 @@ import { useToastStore } from "../stores/useToastStore";
 
 const PROVIDERS: { id: "openrouter" | "serper"; label: string; help: string }[] = [
   { id: "openrouter", label: "OpenRouter", help: "Get a key at openrouter.ai/keys" },
-  { id: "serper", label: "Serper (web search)", help: "Get a key at serper.dev" },
+  { id: "serper", label: "Serper", help: "Get a key at serper.dev" },
 ];
 
 export function ConnectKeyModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
@@ -33,32 +33,56 @@ export function ConnectKeyModal({ open, onClose, onSaved }: { open: boolean; onC
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-tg-bg rounded-2xl p-4 w-80 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h3 className="font-semibold text-tg-text mb-3">Connect a key</h3>
-        <label className="text-xs text-tg-hint">Provider</label>
-        <select
-          value={provider}
-          onChange={(e) => setProvider(e.target.value as "openrouter" | "serper")}
-          className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2 mt-1 mb-3"
-        >
-          {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-        </select>
-        <label className="text-xs text-tg-hint">API key</label>
+    <div className="fixed inset-0 z-50 bg-black/40" onClick={onClose}>
+      <div
+        className="absolute inset-x-0 bottom-0 bg-tg-secondary-bg rounded-t-[28px] p-5 pb-8 shadow-sheet"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-10 h-1 rounded-full bg-tg-hint/30 mx-auto mb-4" />
+        <h3 className="text-[20px] font-bold text-tg-text text-center mb-1">Connect a key</h3>
+        <p className="text-[13px] text-tg-hint text-center mb-5">
+          Add an API key to use Mocco for chat and search.
+        </p>
+
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {PROVIDERS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setProvider(p.id)}
+              className={`px-4 py-3 rounded-2xl text-[14px] font-medium transition-colors ${
+                provider === p.id
+                  ? "bg-tg-button text-tg-button-text"
+                  : "bg-tg-bg text-tg-text"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="text-[12px] text-tg-hint font-medium">API key</label>
         <input
           type="password"
           value={key}
           onChange={(e) => setKey(e.target.value)}
           placeholder="paste here"
-          className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2 mt-1 mb-1"
+          className="w-full mt-1 mb-1 px-4 py-3 rounded-2xl bg-tg-bg text-tg-text outline-none text-[15px] placeholder:text-tg-hint"
         />
-        <p className="text-[10px] text-tg-hint mb-3">{current.help}</p>
-        <div className="flex gap-2 justify-end">
-          <button onClick={onClose} className="px-3 py-1.5 rounded-lg text-sm text-tg-hint">Cancel</button>
-          <button onClick={save} disabled={saving || !key.trim()} className="px-3 py-1.5 rounded-lg text-sm bg-tg-button text-tg-button-text disabled:opacity-50">
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </div>
+        <p className="text-[11px] text-tg-hint mb-5">{current.help}</p>
+
+        <button
+          onClick={save}
+          disabled={saving || !key.trim()}
+          className="w-full py-3.5 rounded-2xl bg-tg-button text-tg-button-text font-semibold text-[15px] disabled:opacity-40 active:scale-[0.99] transition-all"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          onClick={onClose}
+          className="w-full py-3.5 rounded-2xl bg-tg-bg text-tg-text font-semibold text-[15px] mt-2 active:scale-[0.99] transition-all"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );

@@ -18,6 +18,22 @@ type Profile = {
   timezone: string;
 };
 
+const LANGUAGES = [
+  { v: "en", l: "English" },
+  { v: "bn", l: "Bengali" },
+  { v: "es", l: "Spanish" },
+  { v: "ar", l: "Arabic" },
+  { v: "fr", l: "French" },
+  { v: "de", l: "German" },
+];
+
+const GENDERS = [
+  { v: "", l: "Prefer not to say" },
+  { v: "female", l: "Female" },
+  { v: "male", l: "Male" },
+  { v: "other", l: "Other" },
+];
+
 export function ProfilePage() {
   const profile = useProfileStore();
   const setAll = useProfileStore((s) => s.setAll);
@@ -28,8 +44,9 @@ export function ProfilePage() {
 
   const [modelOpen, setModelOpen] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
+  const [editKey, setEditKey] = useState<null | { kind: keyof Profile; label: string; type: "text" | "textarea" | "select" | "number" }>(null);
+  const [draft, setDraft] = useState<string>("");
 
-  // Hydrate from /v1/profile.
   useEffect(() => {
     (async () => {
       try {
@@ -68,134 +85,272 @@ export function ProfilePage() {
     } catch { /* ignore */ }
   }
 
+  function openEdit(kind: keyof Profile, label: string, type: "text" | "textarea" | "select" | "number") {
+    const current = profile[kind];
+    if (Array.isArray(current)) {
+      setDraft(current.join(", "));
+    } else if (current == null) {
+      setDraft("");
+    } else {
+      setDraft(String(current));
+    }
+    setEditKey({ kind, label, type });
+  }
+
+  function closeEdit() {
+    setEditKey(null);
+    setDraft("");
+  }
+
+  async function saveEdit() {
+    if (!editKey) return;
+    const { kind, type } = editKey;
+    let value: any = draft;
+    if (type === "number") {
+      value = draft ? Number(draft) : null;
+    } else if (kind === "interests") {
+      value = draft.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    setAll({ [kind]: value } as any);
+    await patch({ [kind]: value } as any);
+    closeEdit();
+  }
+
+  function displayValue(kind: keyof Profile): string {
+    const v = profile[kind];
+    if (v == null || v === "") return "—";
+    if (Array.isArray(v)) return v.length ? v.join(", ") : "—";
+    if (kind === "gender") return GENDERS.find((g) => g.v === String(v))?.l ?? String(v);
+    if (kind === "language") return LANGUAGES.find((l) => l.v === String(v))?.l ?? String(v);
+    return String(v);
+  }
+
   return (
     <ErrorBoundary>
-      <div className="p-4 pb-24 space-y-6">
-        <Section title="LLM model">
-          <button onClick={() => setModelOpen(true)} className="w-full text-left px-3 py-2 rounded-lg bg-tg-secondary-bg">
-            <span className="text-sm text-tg-text">{model || "(default)"}</span>
-          </button>
-        </Section>
+      <div className="px-4 pt-2 pb-24 space-y-7">
+        <div className="pt-2">
+          <h1 className="text-[32px] leading-[1.1] font-bold tracking-tight text-tg-text">
+            Profile
+          </h1>
+          <p className="mt-2 text-[15px] text-tg-hint">
+            Tune how Mocco responds to you.
+          </p>
+        </div>
 
-        <Section title="Language">
-          <select
-            value={profile.language}
-            onChange={(e) => { setAll({ language: e.target.value }); patch({ language: e.target.value }); }}
-            className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2"
-          >
-            <option value="en">English</option>
-            <option value="bn">Bengali</option>
-            <option value="es">Spanish</option>
-            <option value="ar">Arabic</option>
-            <option value="fr">French</option>
-            <option value="de">German</option>
-          </select>
-        </Section>
-
-        <Section title="Persona">
-          <textarea
-            value={profile.persona}
-            onChange={(e) => setAll({ persona: e.target.value })}
-            onBlur={() => patch({ persona: profile.persona })}
-            rows={3}
-            placeholder="e.g. Be concise. Max 2 sentences per reply."
-            className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2 text-sm"
+        <Group title="Setup">
+          <Row
+            label="LLM model"
+            value={String(model || "(default)")}
+            onClick={() => setModelOpen(true)}
           />
-        </Section>
+          <Divider />
+          <Row
+            label="Language"
+            value={displayValue("language")}
+            onClick={() => openEdit("language", "Language", "select")}
+          />
+          <Divider />
+          <Row
+            label="Persona"
+            value={profile.persona || "—"}
+            onClick={() => openEdit("persona", "Persona", "textarea")}
+            multiline
+          />
+        </Group>
 
-        <Section title="About You">
-          <Field label="Gender">
-            <select
-              value={profile.gender}
-              onChange={(e) => { setAll({ gender: e.target.value }); patch({ gender: e.target.value }); }}
-              className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2 text-sm"
-            >
-              <option value="">—</option>
-              <option value="female">Female</option>
-              <option value="male">Male</option>
-              <option value="other">Other</option>
-              <option value="prefer_not">Prefer not to say</option>
-            </select>
-          </Field>
-          <Field label="Age">
-            <input
-              type="number"
-              value={profile.age ?? ""}
-              onChange={(e) => setAll({ age: e.target.value ? Number(e.target.value) : null })}
-              onBlur={() => patch({ age: profile.age })}
-              className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2 text-sm"
-            />
-          </Field>
-          <Field label="Location">
-            <input
-              value={profile.location}
-              onChange={(e) => setAll({ location: e.target.value })}
-              onBlur={() => patch({ location: profile.location })}
-              className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2 text-sm"
-            />
-          </Field>
-          <Field label="Occupation">
-            <input
-              value={profile.occupation}
-              onChange={(e) => setAll({ occupation: e.target.value })}
-              onBlur={() => patch({ occupation: profile.occupation })}
-              className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2 text-sm"
-            />
-          </Field>
-          <Field label="Interests (comma-separated)">
-            <input
-              value={(profile.interests ?? []).join(", ")}
-              onChange={(e) => setAll({ interests: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-              onBlur={() => patch({ interests: profile.interests ?? [] })}
-              className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2 text-sm"
-            />
-          </Field>
-          <Field label="Timezone">
-            <input
-              value={profile.timezone}
-              onChange={(e) => setAll({ timezone: e.target.value })}
-              onBlur={() => patch({ timezone: profile.timezone })}
-              className="w-full rounded-lg bg-tg-secondary-bg text-tg-text px-3 py-2 text-sm"
-            />
-          </Field>
-        </Section>
+        <Group title="About You">
+          <Row
+            label="Gender"
+            value={displayValue("gender")}
+            onClick={() => openEdit("gender", "Gender", "select")}
+          />
+          <Divider />
+          <Row
+            label="Age"
+            value={profile.age != null ? String(profile.age) : "—"}
+            onClick={() => openEdit("age", "Age", "number")}
+          />
+          <Divider />
+          <Row
+            label="Location"
+            value={profile.location || "—"}
+            onClick={() => openEdit("location", "Location", "text")}
+          />
+          <Divider />
+          <Row
+            label="Occupation"
+            value={profile.occupation || "—"}
+            onClick={() => openEdit("occupation", "Occupation", "text")}
+          />
+          <Divider />
+          <Row
+            label="Interests"
+            value={displayValue("interests")}
+            onClick={() => openEdit("interests", "Interests", "text")}
+          />
+          <Divider />
+          <Row
+            label="Timezone"
+            value={profile.timezone || "—"}
+            onClick={() => openEdit("timezone", "Timezone", "text")}
+          />
+        </Group>
 
-        <Section title="API Keys">
-          {connectedProviders.length === 0 && (
-            <p className="text-sm text-tg-hint mb-2">No keys connected. Connect one to enable chat.</p>
-          )}
-          {connectedProviders.map((p) => (
-            <div key={p} className="flex items-center justify-between py-2">
-              <span className="text-sm text-tg-text capitalize">{p}</span>
-              <button onClick={() => disconnect(p)} className="text-xs text-tg-link">Disconnect</button>
+        <Group title="API Keys">
+          {connectedProviders.length === 0 ? (
+            <div className="px-4 py-4 text-[14px] text-tg-hint">
+              No keys connected. Add one to enable chat.
             </div>
-          ))}
-          <button onClick={() => { refreshKeys(); setKeyOpen(true); }} className="w-full mt-2 px-3 py-2 rounded-lg bg-tg-button text-tg-button-text text-sm">
-            Connect a key
-          </button>
-        </Section>
-
-        <ModelPickerModal open={modelOpen} onClose={() => setModelOpen(false)} />
-        <ConnectKeyModal open={keyOpen} onClose={() => setKeyOpen(false)} onSaved={refreshKeys} />
+          ) : (
+            connectedProviders.map((p, i) => (
+              <div key={p}>
+                <div className="mocco-list-row">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-semibold uppercase">
+                      ON
+                    </span>
+                    <span className="text-[15px] text-tg-text font-medium capitalize truncate">
+                      {p}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => disconnect(p)}
+                    className="text-tg-link text-[14px] active:opacity-50"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+                {i < connectedProviders.length - 1 && <Divider />}
+              </div>
+            ))
+          )}
+          <div className="px-4 pt-3">
+            <button
+              onClick={() => { refreshKeys(); setKeyOpen(true); }}
+              className="w-full py-3 rounded-2xl bg-tg-bg text-tg-link font-semibold text-[15px] active:scale-[0.99] transition-all"
+            >
+              + Connect a key
+            </button>
+          </div>
+        </Group>
       </div>
+
+      <ModelPickerModal open={modelOpen} onClose={() => setModelOpen(false)} />
+      <ConnectKeyModal open={keyOpen} onClose={() => setKeyOpen(false)} onSaved={refreshKeys} />
+
+      {editKey && (
+        <div className="fixed inset-0 z-50 bg-black/40" onClick={closeEdit}>
+          <div
+            className="absolute inset-x-0 bottom-0 bg-tg-secondary-bg rounded-t-[28px] p-5 pb-8 shadow-sheet"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-10 h-1 rounded-full bg-tg-hint/30 mx-auto mb-4" />
+            <h3 className="text-[20px] font-bold text-tg-text mb-1">{editKey.label}</h3>
+            <p className="text-[13px] text-tg-hint mb-4">
+              Saved to your profile on confirm.
+            </p>
+
+            {editKey.type === "textarea" && (
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={4}
+                placeholder="e.g. Be concise. Max 2 sentences per reply."
+                className="w-full px-4 py-3 rounded-2xl bg-tg-bg text-tg-text outline-none text-[15px] placeholder:text-tg-hint resize-none"
+              />
+            )}
+
+            {editKey.type === "text" && (
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl bg-tg-bg text-tg-text outline-none text-[15px] placeholder:text-tg-hint"
+              />
+            )}
+
+            {editKey.type === "number" && (
+              <input
+                type="number"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl bg-tg-bg text-tg-text outline-none text-[15px] placeholder:text-tg-hint"
+              />
+            )}
+
+            {editKey.type === "select" && (
+              <div className="grid grid-cols-2 gap-2">
+                {(editKey.kind === "language" ? LANGUAGES : GENDERS).map((opt) => (
+                  <button
+                    key={opt.v}
+                    onClick={() => setDraft(opt.v)}
+                    className={`px-4 py-3 rounded-2xl text-[14px] font-medium transition-colors ${
+                      draft === opt.v ? "bg-tg-button text-tg-button-text" : "bg-tg-bg text-tg-text"
+                    }`}
+                  >
+                    {opt.l}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={closeEdit}
+                className="flex-1 py-3.5 rounded-2xl bg-tg-bg text-tg-text font-semibold text-[15px] active:scale-[0.99] transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEdit}
+                className="flex-1 py-3.5 rounded-2xl bg-tg-button text-tg-button-text font-semibold text-[15px] active:scale-[0.99] transition-all"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ErrorBoundary>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h2 className="text-xs uppercase tracking-wide text-tg-hint mb-2">{title}</h2>
-      <div className="space-y-2">{children}</div>
+      <h2 className="mocco-section-title">{title}</h2>
+      <div className="mocco-card overflow-hidden">{children}</div>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label,
+  value,
+  onClick,
+  multiline,
+}: {
+  label: string;
+  value: string;
+  onClick: () => void;
+  multiline?: boolean;
+}) {
   return (
-    <div>
-      <label className="text-[10px] text-tg-hint">{label}</label>
-      {children}
-    </div>
+    <button onClick={onClick} className="mocco-list-row w-full text-left gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="text-[15px] text-tg-text font-medium">{label}</div>
+        <div
+          className={`text-[13px] text-tg-hint ${multiline ? "line-clamp-2 mt-0.5" : "truncate"}`}
+        >
+          {value}
+        </div>
+      </div>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0 text-tg-hint">
+        <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
   );
+}
+
+function Divider() {
+  return <div className="h-px bg-tg-divider mx-4" />;
 }

@@ -26,3 +26,5 @@ webapp/.env
 webapp/.env.local
 webapp/dist
 webapp/node_modules
+webapp/tsconfig.tsbuildinfo
+webapp/package-lock.json

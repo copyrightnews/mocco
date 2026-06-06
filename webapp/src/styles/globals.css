@@ -3,14 +3,20 @@
 @tailwind utilities;
 
 :root {
-  --tg-bg: #ffffff;
-  --tg-secondary-bg: #f4f4f5;
-  --tg-text: #0f172a;
-  --tg-hint: #6b7280;
-  --tg-link: #2563eb;
-  --tg-button: #2563eb;
+  --tg-bg: #f2f2f4;
+  --tg-secondary-bg: #ffffff;
+  --tg-text: #0a0a0a;
+  --tg-hint: #6e6e73;
+  --tg-link: #007aff;
+  --tg-button: #007aff;
   --tg-button-text: #ffffff;
-  --tg-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --tg-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, system-ui, sans-serif;
+  --tg-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  --tg-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --tg-radius-card: 24px;
+  --tg-radius-sheet: 28px;
+  --tg-radius-pill: 9999px;
+  --tg-divider: rgba(60, 60, 67, 0.08);
 }
 
 html, body, #root {
@@ -21,6 +27,35 @@ html, body, #root {
   color: var(--tg-text);
   font-family: var(--tg-font);
   -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * { box-sizing: border-box; }
+
+button { font-family: inherit; }
+input, textarea, select { font-family: inherit; }
+
+@layer components {
+  .mocco-card {
+    @apply bg-tg-secondary-bg rounded-3xl shadow-[0_2px_12px_rgba(0,0,0,0.06)];
+  }
+  .mocco-pill {
+    @apply rounded-full bg-tg-secondary-bg shadow-[0_2px_8px_rgba(0,0,0,0.04)] text-tg-text text-sm font-medium px-4 py-2.5;
+  }
+  .mocco-sheet {
+    @apply fixed inset-x-0 bottom-0 z-50 bg-tg-secondary-bg rounded-t-[28px] shadow-[0_-8px_32px_rgba(0,0,0,0.12)] max-h-[85vh] flex flex-col;
+  }
+  .mocco-sheet-handle {
+    @apply w-10 h-1 rounded-full bg-tg-hint/30 mx-auto mt-3 mb-2;
+  }
+  .mocco-list-row {
+    @apply flex items-center justify-between px-4 py-3.5 active:bg-tg-bg transition-colors;
+  }
+  .mocco-section-title {
+    @apply text-[13px] uppercase tracking-wide text-tg-hint font-semibold px-4 mb-2;
+  }
+  .mocco-cta {
+    @apply w-full py-3.5 rounded-2xl bg-tg-button text-tg-button-text font-semibold text-[15px] disabled:opacity-40 transition-opacity;
+  }
+}
