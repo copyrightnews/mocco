@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --tg-bg: #ffffff;
+  --tg-secondary-bg: #f4f4f5;
+  --tg-text: #0f172a;
+  --tg-hint: #6b7280;
+  --tg-link: #2563eb;
+  --tg-button: #2563eb;
+  --tg-button-text: #ffffff;
+  --tg-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--tg-bg);
+  color: var(--tg-text);
+  font-family: var(--tg-font);
+  -webkit-tap-highlight-color: transparent;
+}
+
+* { box-sizing: border-box; }
