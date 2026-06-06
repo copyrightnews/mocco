@@ -1,12 +1,17 @@
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import React from "react";
+import { createBrowserRouter, RouterProvider, Outlet } from "react-router-dom";
 import { AgentPage } from "./pages/AgentPage";
 import { ProfilePage } from "./pages/ProfilePage";
 
-const router = createBrowserRouter([
-  { path: "/", element: <AgentPage /> },
-  { path: "/profile", element: <ProfilePage /> },
-]);
-
-export function AppRouter() {
+export function AppRouter({ shell }: { shell: React.FC }) {
+  const router = createBrowserRouter([
+    {
+      element: <shell />,
+      children: [
+        { path: "/", element: <AgentPage /> },
+        { path: "/profile", element: <ProfilePage /> },
+      ],
+    },
+  ]);
   return <RouterProvider router={router} />;
 }
