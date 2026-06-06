@@ -62,32 +62,52 @@ input, textarea, select { font-family: inherit; }
 
 .mocco-agent-wallpaper {
   background:
-    radial-gradient(ellipse 110% 55% at 50% -8%, rgba(96, 156, 255, 0.55) 0%, rgba(96, 156, 255, 0) 65%),
-    radial-gradient(ellipse 65% 45% at 18% 18%, rgba(120, 90, 220, 0.28) 0%, rgba(120, 90, 220, 0) 60%),
-    radial-gradient(ellipse 55% 35% at 85% 12%, rgba(60, 130, 240, 0.22) 0%, rgba(60, 130, 240, 0) 65%),
-    radial-gradient(ellipse 50% 30% at 70% 70%, rgba(80, 60, 200, 0.18) 0%, rgba(80, 60, 200, 0) 60%),
-    linear-gradient(180deg, #0a1635 0%, #0e1c42 35%, #0a1430 70%, #050a1c 100%);
+    /* Soft outer halo - widest, lowest intensity */
+    radial-gradient(ellipse 140% 80% at 50% -5%,
+      rgba(80, 140, 240, 0.22) 0%,
+      rgba(80, 140, 240, 0) 55%),
+    /* Main focused halo glow at top center */
+    radial-gradient(ellipse 75% 50% at 50% 0%,
+      rgba(120, 175, 255, 0.55) 0%,
+      rgba(85, 145, 240, 0.32) 28%,
+      rgba(60, 120, 220, 0.12) 55%,
+      transparent 72%),
+    /* Bright inner core */
+    radial-gradient(ellipse 35% 25% at 50% 5%,
+      rgba(180, 210, 255, 0.35) 0%,
+      rgba(140, 185, 250, 0.12) 40%,
+      transparent 70%),
+    /* Dark base gradient */
+    linear-gradient(180deg,
+      #0c1a3a 0%,
+      #0a1530 22%,
+      #080f25 45%,
+      #050b1c 70%,
+      #03070f 100%);
 }
 
 .mocco-agent-wallpaper::before {
   content: "";
   position: absolute;
   inset: 0;
-  background-image:
-    radial-gradient(1.2px 1.2px at 12% 22%, rgba(255,255,255,0.55), transparent 50%),
-    radial-gradient(1px 1px at 32% 18%, rgba(255,255,255,0.45), transparent 50%),
-    radial-gradient(1.4px 1.4px at 55% 12%, rgba(255,255,255,0.6), transparent 50%),
-    radial-gradient(1px 1px at 75% 26%, rgba(255,255,255,0.4), transparent 50%),
-    radial-gradient(1.2px 1.2px at 88% 16%, rgba(255,255,255,0.5), transparent 50%),
-    radial-gradient(1px 1px at 22% 38%, rgba(255,255,255,0.35), transparent 50%),
-    radial-gradient(1.2px 1.2px at 68% 42%, rgba(255,255,255,0.45), transparent 50%),
-    radial-gradient(1px 1px at 90% 48%, rgba(255,255,255,0.4), transparent 50%),
-    radial-gradient(1px 1px at 8% 55%, rgba(255,255,255,0.35), transparent 50%),
-    radial-gradient(1.2px 1.2px at 45% 65%, rgba(255,255,255,0.4), transparent 50%);
-  background-size: 100% 100%;
-  background-repeat: no-repeat;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 320px 320px;
+  background-repeat: repeat;
   pointer-events: none;
-  opacity: 0.6;
+  opacity: 0.35;
+  mix-blend-mode: screen;
+}
+
+.mocco-agent-wallpaper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><g fill='white'><circle cx='40' cy='60' r='0.8' opacity='0.7'/><circle cx='120' cy='30' r='0.6' opacity='0.5'/><circle cx='200' cy='80' r='1' opacity='0.6'/><circle cx='280' cy='40' r='0.7' opacity='0.55'/><circle cx='350' cy='90' r='0.9' opacity='0.5'/><circle cx='80' cy='150' r='0.5' opacity='0.45'/><circle cx='180' cy='180' r='0.8' opacity='0.6'/><circle cx='260' cy='140' r='0.6' opacity='0.4'/><circle cx='340' cy='200' r='0.7' opacity='0.5'/><circle cx='30' cy='220' r='0.6' opacity='0.5'/><circle cx='140' cy='250' r='0.9' opacity='0.55'/><circle cx='230' cy='230' r='0.5' opacity='0.4'/><circle cx='320' cy='270' r='0.7' opacity='0.5'/><circle cx='60' cy='310' r='0.8' opacity='0.55'/><circle cx='160' cy='340' r='0.6' opacity='0.45'/><circle cx='250' cy='310' r='0.7' opacity='0.5'/><circle cx='360' cy='350' r='0.5' opacity='0.4'/><circle cx='90' cy='380' r='0.6' opacity='0.45'/><circle cx='200' cy='380' r='0.8' opacity='0.5'/><circle cx='300' cy='380' r='0.5' opacity='0.4'/></g></svg>");
+  background-size: 400px 400px;
+  background-repeat: repeat;
+  pointer-events: none;
+  opacity: 0.7;
+  mix-blend-mode: screen;
 }
 
 .mocco-glass {
