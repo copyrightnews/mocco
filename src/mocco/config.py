@@ -15,7 +15,6 @@ class Config:
     # gracefully degrade with a clear user-facing error.
     OPENROUTER_API_KEY: str = ""   # Fallback key when no user has connected one
     SERPER_API_KEY: str = ""        # Bot-side web search
-    TOGETHER_API_KEY: str = ""      # Bot-side image generation
     ENCRYPTION_KEY: str = ""        # Required only when a user runs /connect
 
     OWNER_ID: int = 0
@@ -31,7 +30,6 @@ REQUIRED_VARS = ("TELEGRAM_TOKEN", "DATABASE_URL")
 OPTIONAL_VARS = (
     "OPENROUTER_API_KEY",
     "SERPER_API_KEY",
-    "TOGETHER_API_KEY",
     "ENCRYPTION_KEY",
     "OWNER_ID",
     "BOT_ID",
@@ -73,7 +71,6 @@ def load_config() -> Config:
         DATABASE_URL=os.environ["DATABASE_URL"],
         OPENROUTER_API_KEY=os.environ.get("OPENROUTER_API_KEY", ""),
         SERPER_API_KEY=os.environ.get("SERPER_API_KEY", ""),
-        TOGETHER_API_KEY=os.environ.get("TOGETHER_API_KEY", ""),
         ENCRYPTION_KEY=os.environ.get("ENCRYPTION_KEY", ""),
         OWNER_ID=owner,
         BOT_ID=bot,
@@ -89,8 +86,6 @@ def get_missing_optional_features(cfg: Config) -> list[str]:
         disabled.append("fallback LLM key (users without their own OpenRouter key can't chat)")
     if not cfg.SERPER_API_KEY:
         disabled.append("web search (Serper)")
-    if not cfg.TOGETHER_API_KEY:
-        disabled.append("image generation (Together)")
     if not cfg.ENCRYPTION_KEY:
         disabled.append("user key storage (/connect will be disabled)")
     return disabled
