@@ -12,6 +12,11 @@ from .providers import PROVIDERS, direct_route_for_model
 
 logger = logging.getLogger("mocco")
 
+
+class NoAPIKeyError(RuntimeError):
+    """Raised when a chat/search/image call has no key from any source."""
+    pass
+
 SEARCH_KEYWORDS = [
     "latest", "news", "today", "current", "price", "score",
     "weather", "who won", "what happened", "right now", "live",
@@ -58,9 +63,13 @@ def get_client_for_chat(user_id: Optional[int], model_id: str) -> Tuple[OpenAI, 
     Routing priority:
       1. Direct provider (e.g. openai/ prefix → OpenAI direct) if user has that key.
       2. User's OpenRouter key.
-      3. Bot's OpenRouter key.
+      3. Bot's OpenRouter key (if configured).
 
     Returns (client, model_id_to_send).
+
+    Raises:
+        NoAPIKeyError: if no key is available from any source. Caller should
+            present a user-friendly prompt to /connect.
     """
     direct = direct_route_for_model(model_id)
     if direct:
@@ -74,7 +83,13 @@ def get_client_for_chat(user_id: Optional[int], model_id: str) -> Tuple[OpenAI, 
     or_key = _get_user_provider_key(user_id, "openrouter")
     if or_key:
         return OpenAI(api_key=or_key, base_url=OPENROUTER_BASE_URL), model_id
+
     cfg = load_config()
+    if not cfg.OPENROUTER_API_KEY:
+        raise NoAPIKeyError(
+            "No OpenRouter key is available. Run /connect to add your own, "
+            "or ask the bot owner to set OPENROUTER_API_KEY as a fallback."
+        )
     return OpenAI(api_key=cfg.OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL), model_id
 
 
@@ -189,8 +204,20 @@ def create_chat_completion(messages: List[dict], system_prompt: Optional[str] = 
 
 
 def web_search(query: str) -> Tuple[str, list]:
-    """Light wrapper around Serper/google.serper.dev. Returns text and raw results list."""
+    """Light wrapper around Serper/google.serper.dev. Returns text and raw results list.
+
+    If SERPER_API_KEY is not configured, returns a "feature disabled" message
+    instead of crashing.
+    """
     cfg = load_config()
+    if not cfg.SERPER_API_KEY:
+        return (
+            "🔍 *Web search is not configured by the bot owner.*\n"
+            "The bot's SERPER_API_KEY is missing, so live web search is disabled.\n\n"
+            "If you have your own Serper key, ask the bot owner to wire it up "
+            "or open a feature request.",
+            [],
+        )
     try:
         r = requests.post(
             "https://google.serper.dev/search",
@@ -240,9 +267,12 @@ def generate_image(prompt: str) -> Optional[Tuple[bytes | str, bool]]:
     Returns:
         (image_bytes, False) if payload is base64
         (image_url, True) if payload is a URL
-        None if generation failed.
+        None if generation failed (or TOGETHER_API_KEY not configured).
     """
     cfg = load_config()
+    if not cfg.TOGETHER_API_KEY:
+        logger.info("generate_image skipped: TOGETHER_API_KEY not configured")
+        return None
     models = [
         {"model": "black-forest-labs/FLUX.1-schnell", "steps": 4},
         {"model": "stabilityai/stable-diffusion-xl-base-1.0", "steps": 20},

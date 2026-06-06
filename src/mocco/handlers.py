@@ -39,6 +39,7 @@ from .ai import (
     user_connected_providers,
     can_use_paid_model,
     fetch_all_models,
+    NoAPIKeyError,
 )
 from .crypto import encrypt_api_key
 from .providers import (
@@ -362,6 +363,18 @@ async def process_message(update, context, msg, business_connection_id=None):
             business_connection_id=business_connection_id,
             bot=context.bot,
         )
+    except NoAPIKeyError as e:
+        logger.warning(f"No API key available for user {user_id}: {e}")
+        await safe_reply(
+            msg,
+            "🔑 *No API key is configured for chatting.*\n\n"
+            "The bot owner hasn't set a fallback OpenRouter key, and you don't "
+            "have one connected either. Run `/connect openrouter` (or `/connect openai`) "
+            "to add your own — it stays encrypted and only you can use it.",
+            parse_mode="Markdown",
+            business_connection_id=business_connection_id,
+            bot=context.bot,
+        )
     except Exception as e:
         logger.exception(f"process_message error: {e}")
         await safe_reply(
@@ -592,13 +605,25 @@ async def cmd_imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown",
             )
     else:
-        await safe_reply(
-            msg,
-            "❌ *Image generation failed.*\n"
-            "This may be a temporary issue with the image service.\n"
-            "Please try again in a moment, or use a different prompt.",
-            parse_mode="Markdown",
-        )
+        from .config import load_config
+        cfg = load_config()
+        if not cfg.TOGETHER_API_KEY:
+            await safe_reply(
+                msg,
+                "❌ *Image generation is not configured.*\n"
+                "The bot's TOGETHER_API_KEY is missing.\n\n"
+                "Run `/connect together` to add your own API key, "
+                "or ask the bot owner to enable it.",
+                parse_mode="Markdown",
+            )
+        else:
+            await safe_reply(
+                msg,
+                "❌ *Image generation failed.*\n"
+                "This may be a temporary issue with the image service.\n"
+                "Please try again in a moment, or use a different prompt.",
+                parse_mode="Markdown",
+            )
 
 
 async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -649,7 +674,15 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error(f"summarize failed: {e}")
-        await safe_reply(msg, "❌ *Summarization failed.*\nPlease try again.", parse_mode="Markdown")
+        if isinstance(e, NoAPIKeyError):
+            await safe_reply(
+                msg,
+                "🔑 *No API key is configured for summarizing.*\n"
+                "Run `/connect` to add your own.",
+                parse_mode="Markdown",
+            )
+        else:
+            await safe_reply(msg, "❌ *Summarization failed.*\nPlease try again.", parse_mode="Markdown")
 
 
 async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -708,7 +741,15 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error(f"translate failed: {e}")
-        await safe_reply(msg, f"❌ *Translation to {lang} failed.*\nPlease try again.", parse_mode="Markdown")
+        if isinstance(e, NoAPIKeyError):
+            await safe_reply(
+                msg,
+                "🔑 *No API key is configured for translating.*\n"
+                "Run `/connect` to add your own.",
+                parse_mode="Markdown",
+            )
+        else:
+            await safe_reply(msg, f"❌ *Translation to {lang} failed.*\nPlease try again.", parse_mode="Markdown")
 
 
 async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -871,6 +912,17 @@ async def cmd_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = msg.from_user.id
     ensure_user(user_id, msg.from_user.username, msg.from_user.first_name)
     if db_is_blacklisted(user_id):
+        return
+
+    from .config import load_config
+    if not load_config().ENCRYPTION_KEY:
+        await safe_reply(
+            msg,
+            "❌ *Key storage is not configured by the bot owner.*\n"
+            "The bot's `ENCRYPTION_KEY` env var is missing, so I can't safely save your API key.\n\n"
+            "Please ask the bot owner to set it (see `.env.example`).",
+            parse_mode="Markdown",
+        )
         return
 
     args = context.args or []
