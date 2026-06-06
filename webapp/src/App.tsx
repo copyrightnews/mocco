@@ -1,5 +1,10 @@
 import { AppRouter } from "./router";
+import { TelegramProvider } from "./components/TelegramProvider";
 
 export default function App() {
-  return <AppRouter />;
+  return (
+    <TelegramProvider>
+      <AppRouter />
+    </TelegramProvider>
+  );
 }
