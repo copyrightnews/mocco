@@ -1435,7 +1435,6 @@ def register_handlers(app):
     app.add_handler(CommandHandler("menu",        cmd_menu))
     app.add_handler(CommandHandler("reset",       cmd_reset))
     app.add_handler(CommandHandler("search",      cmd_search))
-    app.add_handler(CommandHandler("imagine",     cmd_imagine))
     app.add_handler(CommandHandler("summarize",   cmd_summarize))
     app.add_handler(CommandHandler("translate",   cmd_translate))
     app.add_handler(CommandHandler("setprompt",   cmd_setprompt))
