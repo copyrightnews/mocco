@@ -4,7 +4,7 @@ import { BottomNav } from "./BottomNav";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col h-full bg-tg-bg">
+    <div className="flex flex-col h-full">
       <div className="pt-[env(safe-area-inset-top)]">
         <TopBar />
       </div>

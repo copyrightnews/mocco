@@ -1,9 +1,14 @@
 import { useChatStore } from "../stores/useChatStore";
 
-export function QuickActionChips({ onReset }: { onReset: () => void }) {
+export function QuickActionChips({ onReset, tone = "light" }: { onReset: () => void; tone?: "light" | "dark" }) {
   const setInput = useChatStore((s) => s.setInput);
   const input = useChatStore((s) => s.input);
   const disabled = input.trim().length > 0;
+
+  const baseCls =
+    tone === "dark"
+      ? "mocco-glass-pill flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[13px] font-medium disabled:opacity-40 active:scale-[0.98] transition-all"
+      : "flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-tg-secondary-bg shadow-pill text-tg-text text-[13px] font-medium disabled:opacity-40 active:scale-[0.98] transition-all";
 
   const chip = (label: string, prefix: string, emoji: string) => (
     <button
@@ -11,7 +16,7 @@ export function QuickActionChips({ onReset }: { onReset: () => void }) {
       type="button"
       onClick={() => setInput(prefix)}
       disabled={disabled}
-      className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-tg-secondary-bg shadow-pill text-tg-text text-[13px] font-medium disabled:opacity-40 active:scale-[0.98] transition-all"
+      className={baseCls}
     >
       <span className="text-base leading-none">{emoji}</span>
       <span>{label}</span>
@@ -26,7 +31,7 @@ export function QuickActionChips({ onReset }: { onReset: () => void }) {
       <button
         type="button"
         onClick={onReset}
-        className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-tg-secondary-bg shadow-pill text-tg-text text-[13px] font-medium active:scale-[0.98] transition-all"
+        className={baseCls}
       >
         <span className="text-base leading-none">🗑</span>
         <span>Reset</span>

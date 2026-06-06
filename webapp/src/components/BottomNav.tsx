@@ -42,7 +42,7 @@ const items = [
 
 export function BottomNav() {
   return (
-    <nav className="flex items-stretch h-16 bg-tg-bg/90 backdrop-blur-md border-t border-tg-divider pb-[env(safe-area-inset-bottom)]">
+    <nav className="flex items-stretch h-16 bg-black/30 backdrop-blur-xl border-t border-white/10 pb-[env(safe-area-inset-bottom)]">
       {items.map((it) => (
         <NavLink
           key={it.to}

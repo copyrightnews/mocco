@@ -101,40 +101,40 @@ export function ChatPanel() {
   const empty = messages.length === 0;
 
   return (
-    <div className="flex flex-col h-full bg-tg-bg">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto pb-32">
+    <div className="relative flex flex-col h-full mocco-agent-wallpaper overflow-hidden">
+      <div ref={scrollRef} className="relative flex-1 overflow-y-auto pb-40 z-10">
         {empty && (
           <div className="px-5 pt-10">
-            <h1 className="text-[32px] leading-[1.1] font-bold tracking-tight text-tg-text">
+            <h1 className="text-[32px] leading-[1.1] font-bold tracking-tight text-white">
               How can I help
               <br />
               you today?
             </h1>
-            <p className="mt-3 text-[15px] text-tg-hint">
+            <p className="mt-3 text-[15px] text-white/60">
               Ask anything or pick a quick action below.
             </p>
           </div>
         )}
         {messages.map((m, i) => (
-          <MessageBubble key={i} m={m} />
+          <MessageBubble key={i} m={m} tone="dark" />
         ))}
       </div>
 
-      <div className="fixed inset-x-0 bottom-16 z-30 bg-gradient-to-t from-tg-bg via-tg-bg to-transparent pt-4">
+      <div className="fixed inset-x-0 bottom-16 z-30 pt-4 bg-gradient-to-t from-[#050a1c] via-[#050a1c]/85 to-transparent">
         {messages.length > 0 && (
           <div className="overflow-x-auto">
             <div className="flex gap-2 px-4 pb-2 w-max">
               <button
                 onClick={() => setResetOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-tg-secondary-bg shadow-pill text-tg-text text-[13px] font-medium active:scale-[0.98]"
+                className="mocco-glass-pill flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[13px] font-medium active:scale-[0.98]"
               >
                 <span>Reset</span>
               </button>
             </div>
           </div>
         )}
-        <div className="bg-tg-bg/95 backdrop-blur-md px-3 pt-2 pb-3">
-          <div className="mocco-card flex items-center gap-2 px-2 py-1.5">
+        <div className="px-3 pt-2 pb-3">
+          <div className="mocco-glass-strong rounded-2xl flex items-center gap-2 px-2 py-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.3)]">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -146,7 +146,7 @@ export function ChatPanel() {
               }}
               placeholder="Ask anything…"
               rows={1}
-              className="flex-1 resize-none bg-transparent text-tg-text outline-none text-[15px] px-2.5 py-1.5 max-h-32 placeholder:text-tg-hint"
+              className="flex-1 resize-none bg-transparent text-white outline-none text-[15px] px-2.5 py-1.5 max-h-32 placeholder:text-white/50"
             />
             <button
               onClick={send}
@@ -164,7 +164,7 @@ export function ChatPanel() {
 
       {empty && (
         <div className="fixed inset-x-0 bottom-32 z-20">
-          <QuickActionChips onReset={() => setResetOpen(true)} />
+          <QuickActionChips onReset={() => setResetOpen(true)} tone="dark" />
         </div>
       )}
 
