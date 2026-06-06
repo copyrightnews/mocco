@@ -1,11 +1,14 @@
 import logging
 import base64
+import time
 from typing import List, Tuple, Optional
 from datetime import datetime, timezone
 import requests
-from groq import Groq
-from .config import load_config
-from .db import get_custom_prompt, get_history
+from openai import OpenAI
+from .config import load_config, OPENROUTER_BASE_URL
+from .db import get_custom_prompt, get_chat_model, get_user_api_key, get_history
+from .crypto import decrypt_api_key
+from .providers import PROVIDERS, direct_route_for_model
 
 logger = logging.getLogger("mocco")
 
@@ -16,19 +19,165 @@ SEARCH_KEYWORDS = [
     "this month", "2024", "2025", "2026", "happening", "released", "launched",
 ]
 
-def get_groq_client() -> Groq:
-    cfg = load_config()
-    return Groq(api_key=cfg.GROQ_API_KEY)
+ALL_MODELS_CACHE: List[dict] = []
+ALL_MODELS_CACHE_TIME: float = 0.0
+MODELS_CACHE_TTL = 3600
 
-def create_chat_completion(messages: List[dict], system_prompt: Optional[str] = None) -> Optional[str]:
-    """Create a chat completion using the Groq client. Returns the text on success or None."""
+
+def _get_user_provider_key(user_id: Optional[int], provider: str) -> Optional[str]:
+    """Return the decrypted API key the user stored for this provider, or None."""
+    if user_id is None:
+        return None
+    enc = get_user_api_key(user_id, provider)
+    if not enc:
+        return None
     try:
-        client = get_groq_client()
+        return decrypt_api_key(enc)
+    except Exception as e:
+        logger.error(f"Failed to decrypt {provider} key for {user_id}: {e}")
+        return None
+
+
+def _get_user_openrouter_key(user_id: Optional[int]) -> Optional[str]:
+    """Backwards-compatible shim — only OpenRouter."""
+    return _get_user_provider_key(user_id, "openrouter")
+
+
+def get_openrouter_client(user_id: Optional[int] = None) -> OpenAI:
+    """Always returns an OpenRouter-targeted client (user's OR key if present, else bot's)."""
+    user_key = _get_user_openrouter_key(user_id)
+    if user_key:
+        return OpenAI(api_key=user_key, base_url=OPENROUTER_BASE_URL)
+    cfg = load_config()
+    return OpenAI(api_key=cfg.OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
+
+
+def get_client_for_chat(user_id: Optional[int], model_id: str) -> Tuple[OpenAI, str]:
+    """Resolve which API + model_id to use for a chat request.
+
+    Routing priority:
+      1. Direct provider (e.g. openai/ prefix → OpenAI direct) if user has that key.
+      2. User's OpenRouter key.
+      3. Bot's OpenRouter key.
+
+    Returns (client, model_id_to_send).
+    """
+    direct = direct_route_for_model(model_id)
+    if direct:
+        direct_key = _get_user_provider_key(user_id, direct)
+        if direct_key:
+            prov = PROVIDERS[direct]
+            resolved = model_id[len(prov["model_strip_prefix"]):] if prov["model_strip_prefix"] else model_id
+            logger.info(f"Routing {model_id} via {direct} direct → {resolved}")
+            return OpenAI(api_key=direct_key, base_url=prov["base_url"]), resolved
+
+    or_key = _get_user_provider_key(user_id, "openrouter")
+    if or_key:
+        return OpenAI(api_key=or_key, base_url=OPENROUTER_BASE_URL), model_id
+    cfg = load_config()
+    return OpenAI(api_key=cfg.OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL), model_id
+
+
+def resolve_model(user_id: Optional[int] = None) -> str:
+    """Resolve which model to use for a given user.
+    Priority: user choice (DB) > env CHAT_MODEL > built-in default.
+    """
+    if user_id is not None:
+        user_choice = get_chat_model(user_id)
+        if user_choice:
+            return user_choice
+    return load_config().CHAT_MODEL
+
+
+def user_has_key(user_id: Optional[int]) -> bool:
+    """True if user has connected ANY provider key (any kind)."""
+    if user_id is None:
+        return False
+    for prov in PROVIDERS:
+        if _get_user_provider_key(user_id, prov) is not None:
+            return True
+    return False
+
+
+def user_connected_providers(user_id: Optional[int]) -> List[str]:
+    if user_id is None:
+        return []
+    return [p for p in PROVIDERS if _get_user_provider_key(user_id, p) is not None]
+
+
+def can_use_paid_model(user_id: Optional[int], model_id: str) -> bool:
+    """True if the user has an appropriate key to be billed for this paid model.
+
+    - Any OpenRouter key works for any OpenRouter-listed model.
+    - A direct-provider key works for models matching that provider's prefix.
+    """
+    if user_id is None:
+        return False
+    if _get_user_provider_key(user_id, "openrouter"):
+        return True
+    direct = direct_route_for_model(model_id)
+    if direct and _get_user_provider_key(user_id, direct):
+        return True
+    return False
+
+
+def fetch_all_models(force: bool = False) -> List[dict]:
+    """Fetch all text->text chat models from OpenRouter. Cached for MODELS_CACHE_TTL seconds.
+    Returns a list of dicts: {"id", "name", "context_length", "is_free", "pricing"}.
+    """
+    global ALL_MODELS_CACHE, ALL_MODELS_CACHE_TIME
+    now = time.time()
+    if not force and ALL_MODELS_CACHE and (now - ALL_MODELS_CACHE_TIME) < MODELS_CACHE_TTL:
+        return ALL_MODELS_CACHE
+    try:
+        r = requests.get(f"{OPENROUTER_BASE_URL}/models", timeout=15)
+        r.raise_for_status()
+        data = r.json().get("data", [])
+        out = []
+        for m in data:
+            mid = m.get("id", "")
+            arch = m.get("architecture", {}) or {}
+            if arch.get("modality") != "text->text":
+                continue
+            pricing = m.get("pricing", {}) or {}
+            is_free = (
+                mid.endswith(":free")
+                or pricing.get("prompt", "0") in ("0", "0.0", 0, "0.0", None)
+                and pricing.get("completion", "0") in ("0", "0.0", 0, "0.0", None)
+            )
+            out.append({
+                "id": mid,
+                "name": m.get("name", mid),
+                "context_length": m.get("context_length", 0),
+                "is_free": bool(is_free),
+                "pricing": pricing,
+            })
+        out.sort(key=lambda x: (not x["is_free"], x["name"].lower()))
+        ALL_MODELS_CACHE = out
+        ALL_MODELS_CACHE_TIME = now
+        logger.info(f"Loaded {len(out)} text->text models from OpenRouter ({sum(1 for m in out if m['is_free'])} free)")
+        return out
+    except Exception as e:
+        logger.warning(f"fetch_all_models failed: {e}")
+        if ALL_MODELS_CACHE:
+            return ALL_MODELS_CACHE
+        return [
+            {"id": "minimax/minimax-m2.5:free", "name": "Minimax M2.5 (free)", "context_length": 196608, "is_free": True, "pricing": {}},
+            {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Meta: Llama 3.3 70B (free)", "context_length": 131072, "is_free": True, "pricing": {}},
+            {"id": "qwen/qwen3-next-80b-a3b-instruct:free", "name": "Qwen 3 Next 80B (free)", "context_length": 262144, "is_free": True, "pricing": {}},
+        ]
+
+
+def create_chat_completion(messages: List[dict], system_prompt: Optional[str] = None, user_id: Optional[int] = None) -> Optional[str]:
+    """Create a chat completion. Returns the text on success or None."""
+    try:
+        model_id = resolve_model(user_id)
+        client, resolved_model = get_client_for_chat(user_id, model_id)
         payload = messages
         if system_prompt:
             payload = [{"role": "system", "content": system_prompt}] + messages
         resp = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=resolved_model,
             messages=payload,
             max_tokens=800,
             temperature=0.65,
@@ -37,6 +186,7 @@ def create_chat_completion(messages: List[dict], system_prompt: Optional[str] = 
     except Exception as e:
         logger.warning(f"create_chat_completion failed: {e}")
         return None
+
 
 def web_search(query: str) -> Tuple[str, list]:
     """Light wrapper around Serper/google.serper.dev. Returns text and raw results list."""
@@ -79,9 +229,11 @@ def web_search(query: str) -> Tuple[str, list]:
         logger.warning(f"web_search failed: {e}")
         return "Search failed. Please try again in a moment.", []
 
+
 def needs_search(text: str) -> bool:
     t = text.lower()
     return any(k in t for k in SEARCH_KEYWORDS)
+
 
 def generate_image(prompt: str) -> Optional[Tuple[bytes | str, bool]]:
     """Generates an image from Together AI API.
@@ -134,6 +286,7 @@ def generate_image(prompt: str) -> Optional[Tuple[bytes | str, bool]]:
             continue
     return None
 
+
 def get_system_prompt(user_id: Optional[int] = None) -> str:
     today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
     base = (
@@ -162,13 +315,13 @@ def get_system_prompt(user_id: Optional[int] = None) -> str:
         "- Generate creative content: stories, emails, essays, product descriptions, etc.\n"
         "- Help with planning, brainstorming, and decision-making.\n"
         "- Search the web for current information when triggered.\n"
-        "- Send a voice note — Mocco will transcribe it and reply.\n"
     )
     if user_id:
         custom = get_custom_prompt(user_id)
         if custom:
             base += f"\n## Custom instructions from this user:\n{custom}\n"
     return base
+
 
 def get_ai_reply(user_id: int, user_msg: str) -> Optional[str]:
     history = get_history(user_id)
@@ -185,15 +338,16 @@ def get_ai_reply(user_id: int, user_msg: str) -> Optional[str]:
     else:
         messages.append({"role": "user", "content": user_msg})
 
+    model_id = resolve_model(user_id)
     try:
-        client = get_groq_client()
+        client, resolved_model = get_client_for_chat(user_id, model_id)
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=resolved_model,
             messages=[{"role": "system", "content": get_system_prompt(user_id)}] + messages,
             max_tokens=800,
             temperature=0.65,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        logger.error(f"Groq error: {e}")
+        logger.error(f"chat completion error ({model_id}): {e}")
         return None

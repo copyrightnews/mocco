@@ -1,4 +1,4 @@
-﻿import time
+import time
 from collections import defaultdict
 from typing import List
 

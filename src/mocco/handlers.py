@@ -2,12 +2,14 @@ import os
 import logging
 import asyncio
 import tempfile
+from typing import List, Optional
 from datetime import datetime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
     MessageHandler,
     CommandHandler,
+    CallbackQueryHandler,
     filters,
     ContextTypes,
 )
@@ -22,12 +24,30 @@ from .db import (
     get_stats,
     set_blacklist,
     get_all_active_users,
+    get_chat_model,
+    set_chat_model,
+    set_user_api_key,
+    delete_user_api_key,
 )
 from .ai import (
     get_ai_reply,
     web_search,
     generate_image,
-    get_groq_client,
+    get_client_for_chat,
+    resolve_model,
+    user_has_key,
+    user_connected_providers,
+    can_use_paid_model,
+    fetch_all_models,
+)
+from .crypto import encrypt_api_key
+from .providers import (
+    PROVIDERS,
+    VERIFY_OK,
+    VERIFY_TRANSIENT,
+    is_known_provider,
+    looks_like_provider_key,
+    verify_key,
 )
 from .utils import is_rate_limited, split_message
 
@@ -45,7 +65,9 @@ WELCOME_TEXT = (
     "• 🌐 Translation & summarization\n"
     "• 🎨 Image generation\n"
     "• 🧠 Ideas, planning & problem solving\n"
-    "• 📚 Learning & everyday questions\n\n"
+    "• 📚 Learning & everyday questions\n"
+    "• 🤖 Pick your own AI model with `/model`\n"
+    "• 🔑 Bring your own key (OpenRouter, OpenAI, Anthropic, Google, Groq, Together) via `/connect`\n\n"
     "Just type your question, or tap a button below."
 )
 
@@ -76,8 +98,20 @@ HELP_TEXT = (
     "`/clearprompt`\n"
     "Remove your custom personality.\n\n"
     "━━━━━━━━━━━━━━━━━━━━\n"
-    "🎤 *Voice Messages*\n"
-    "Send a voice note — I'll transcribe it and reply.\n\n"
+    "🤖 *Models & API Keys*\n\n"
+    "`/model`\n"
+    "Pick from all available models (free + paid).\n"
+    "`/model reset` — go back to bot default.\n\n"
+    "`/connect` *or* `/connect <provider>`\n"
+    "Save your own API key for a provider. Supported:\n"
+    "🌐 OpenRouter · 🟢 OpenAI · 🟠 Anthropic · 🔵 Google · ⚡ Groq · 🤝 Together\n"
+    "Keys are *verified live* against the provider, then encrypted at rest.\n\n"
+    "`/keys`\n"
+    "Show which provider keys you have connected.\n\n"
+    "`/disconnect` *or* `/disconnect <provider>`\n"
+    "Remove a stored key.\n\n"
+    "`/cancel` — abort an in-progress `/connect`.\n\n"
+    "━━━━━━━━━━━━━━━━━━━━\n"
     "🗂 `/menu` — Show main menu\n"
     "❓ `/help` — Show this guide."
 )
@@ -86,20 +120,20 @@ HELP_TEXT = (
 def build_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔄 Reset Chat",        switch_inline_query_current_chat="/reset"),
-            InlineKeyboardButton("🔍 Search Web",         switch_inline_query_current_chat="/search "),
+            InlineKeyboardButton("🔄 Reset Chat",        callback_data="menu:reset"),
+            InlineKeyboardButton("🔍 Search Web",         callback_data="menu:search"),
         ],
         [
-            InlineKeyboardButton("🎨 Generate Image",     switch_inline_query_current_chat="/imagine "),
-            InlineKeyboardButton("📝 Summarize",          switch_inline_query_current_chat="/summarize "),
+            InlineKeyboardButton("🎨 Generate Image",     callback_data="menu:imagine"),
+            InlineKeyboardButton("📝 Summarize",          callback_data="menu:summarize"),
         ],
         [
-            InlineKeyboardButton("🌐 Translate",          switch_inline_query_current_chat="/translate "),
-            InlineKeyboardButton("🧠 Set Personality",    switch_inline_query_current_chat="/setprompt "),
+            InlineKeyboardButton("🤖 Choose Model",       callback_data="model:open"),
+            InlineKeyboardButton("🔑 Connect Key",        callback_data="model:connect"),
         ],
         [
-            InlineKeyboardButton("🗑️ Clear Personality",  switch_inline_query_current_chat="/clearprompt"),
-            InlineKeyboardButton("📖 Full Guide",         switch_inline_query_current_chat="/help"),
+            InlineKeyboardButton("🧠 Set Personality",    callback_data="menu:setprompt"),
+            InlineKeyboardButton("📖 Full Guide",         callback_data="menu:help"),
         ],
     ])
 
@@ -153,8 +187,6 @@ async def process_message(update, context, msg, business_connection_id=None):
     user = msg.from_user
     if not user or user.is_bot:
         return
-
-    cfg = load_config()
 
     # ── Telegram Business Connection Loop Protection ──────────────────────────────
     if business_connection_id:
@@ -313,7 +345,7 @@ async def process_message(update, context, msg, business_connection_id=None):
     try:
         reply = await asyncio.to_thread(get_ai_reply, user_id, user_msg)
         if reply is None:
-            # Groq API failed; reply with error but do NOT save to history database
+            # LLM API failed; reply with error but do NOT save to history database
             await safe_reply(
                 msg,
                 "I couldn't generate a response right now.\n"
@@ -347,7 +379,110 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await process_message(update, context, update.message)
+    msg = update.message
+    if not msg:
+        return
+    user = msg.from_user
+    if user and msg.text and not msg.text.startswith("/"):
+        text_stripped = msg.text.strip()
+
+        pending_provider = _pending_get(user.id)
+        if pending_provider and is_known_provider(pending_provider):
+            p = PROVIDERS[pending_provider]
+            key = text_stripped
+            # Delete the user's plaintext key message (best-effort; fails silently in private chats)
+            try:
+                await msg.delete()
+            except TelegramError:
+                pass
+
+            # Cheap format check first to avoid hitting the network for obvious junk.
+            if not looks_like_provider_key(pending_provider, key):
+                PENDING_KEY.pop(user.id, None)
+                hint = "/".join(p["key_hint"]) if p["key_hint"] else "(no fixed prefix)"
+                await safe_reply(
+                    msg,
+                    f"❌ *That doesn't look like a valid {p['label']} key.*\n"
+                    f"Keys for {p['label']} typically start with: `{hint}`.\n"
+                    f"Run `/connect {pending_provider}` to try again.",
+                    parse_mode="Markdown",
+                )
+                return
+
+            # Tell user we're verifying (verify_key is a network call, ~200-1000ms)
+            await safe_reply(
+                msg,
+                f"🔍 Verifying your {p['emoji']} {p['label']} key live against {p['label']}…",
+                parse_mode="Markdown",
+            )
+            result = await asyncio.to_thread(verify_key, pending_provider, key)
+            if result != VERIFY_OK:
+                PENDING_KEY.pop(user.id, None)
+                if result == VERIFY_TRANSIENT:
+                    await safe_reply(
+                        msg,
+                        f"⏳ *{p['label']} is temporarily unreachable.*\n"
+                        f"Their servers didn't respond (rate limit or outage).\n"
+                        f"Please try `/connect {pending_provider}` again in a minute.",
+                        parse_mode="Markdown",
+                    )
+                else:
+                    await safe_reply(
+                        msg,
+                        f"❌ *{p['label']} rejected that key.*\n"
+                        f"It may be revoked, mistyped, or missing required scopes.\n"
+                        f"Run `/connect {pending_provider}` to try again.",
+                        parse_mode="Markdown",
+                    )
+                return
+
+            ok = await _save_user_key(user.id, pending_provider, key)
+            PENDING_KEY.pop(user.id, None)
+            if ok:
+                routing_note = (
+                    f"\n\n_Models prefixed with `{p['direct_route_prefix']}` will now be routed "
+                    f"directly to {p['label']} (cheaper than via OpenRouter)._"
+                    if p.get("direct_route_prefix") else ""
+                )
+                await safe_reply(
+                    msg,
+                    f"✅ *{p['emoji']} {p['label']} key verified and saved!*\n\n"
+                    f"Your key is encrypted; only you can use it. "
+                    f"Run `/keys` to see all your providers, `/model` to pick a model."
+                    f"{routing_note}\n\n"
+                    f"⚠️ *Please delete your message above containing the key* so it isn't "
+                    f"visible in your chat history.",
+                    parse_mode="Markdown",
+                )
+            else:
+                await safe_reply(
+                    msg,
+                    "❌ *Failed to save your key.*\nPlease try again with `/connect`.",
+                    parse_mode="Markdown",
+                )
+            return
+
+        # Defensive: user pasted what looks like an API key without running /connect first.
+        suspicious_prefixes = ("sk-or-", "sk-ant-", "sk-proj-", "sk-", "gsk_", "AIza")
+        if (
+            any(text_stripped.startswith(pref) for pref in suspicious_prefixes)
+            and len(text_stripped) >= 40
+            and not any(c.isspace() for c in text_stripped)
+        ):
+            try:
+                await msg.delete()
+            except TelegramError:
+                pass
+            await safe_reply(
+                msg,
+                "⚠️ *That looks like an API key.*\n"
+                "I won't save or process it because you didn't run `/connect` first.\n\n"
+                "Run `/connect` and pick the right provider to save your key properly.\n"
+                "_Please delete your message above containing the key._",
+                parse_mode="Markdown",
+            )
+            return
+    await process_message(update, context, msg)
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -485,10 +620,11 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except TelegramError:
         pass
     try:
-        groq_client = get_groq_client()
+        model_id = resolve_model(msg.from_user.id)
+        client, resolved_model = get_client_for_chat(msg.from_user.id, model_id)
         resp = await asyncio.to_thread(
-            lambda: groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+            lambda: client.chat.completions.create(
+                model=resolved_model,
                 messages=[
                     {
                         "role": "system",
@@ -539,10 +675,11 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except TelegramError:
         pass
     try:
-        groq_client = get_groq_client()
+        model_id = resolve_model(msg.from_user.id)
+        client, resolved_model = get_client_for_chat(msg.from_user.id, model_id)
         resp = await asyncio.to_thread(
-            lambda: groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+            lambda: client.chat.completions.create(
+                model=resolved_model,
                 messages=[
                     {
                         "role": "system",
@@ -616,74 +753,510 @@ async def cmd_clearprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+MODELS_PAGE_SIZE = 6
+# Maps user_id -> (provider_name, expiry_unix_ts). Entries past expiry are treated as absent.
+PENDING_KEY_TTL_SECONDS = 600  # 10 minutes
+PENDING_KEY: dict[int, tuple[str, float]] = {}
+
+
+def _pending_get(user_id: int) -> Optional[str]:
+    """Return the pending provider for this user, or None if expired/missing."""
+    import time as _time
+    entry = PENDING_KEY.get(user_id)
+    if entry is None:
+        return None
+    provider, expiry = entry
+    if _time.time() > expiry:
+        PENDING_KEY.pop(user_id, None)
+        return None
+    return provider
+
+
+def _pending_set(user_id: int, provider: str) -> None:
+    import time as _time
+    PENDING_KEY[user_id] = (provider, _time.time() + PENDING_KEY_TTL_SECONDS)
+
+
+def _build_provider_keyboard(action: str, only_connected_for: Optional[int] = None) -> InlineKeyboardMarkup:
+    """Build a 2-column keyboard of providers.
+
+    action: "connect" or "disconnect" — used in callback_data prefix.
+    only_connected_for: if set, restrict to providers this user has actually connected.
+    """
+    connected = set(user_connected_providers(only_connected_for)) if only_connected_for else None
+    rows: List[List[InlineKeyboardButton]] = []
+    pair: List[InlineKeyboardButton] = []
+    for name, p in PROVIDERS.items():
+        if connected is not None and name not in connected:
+            continue
+        label = f"{p['emoji']} {p['label']}"
+        pair.append(InlineKeyboardButton(label, callback_data=f"key:{action}:{name}"))
+        if len(pair) == 2:
+            rows.append(pair)
+            pair = []
+    if pair:
+        rows.append(pair)
+    rows.append([InlineKeyboardButton("❌ Cancel", callback_data="key:cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _short_model_label(m: dict) -> str:
+    name = m.get("name", m["id"])
+    if name.endswith(" (free)"):
+        name = name[: -len(" (free)")]
+    short = name.split(":")[-1].strip()
+    return short[:32] if len(short) > 32 else short
+
+
+def _format_ctx(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n // 1_000_000}M"
+    if n >= 1_000:
+        return f"{n // 1_000}K"
+    return str(n)
+
+
+def _build_models_keyboard(
+    models: List[dict], page: int, current: str, has_user_key: bool
+) -> InlineKeyboardMarkup:
+    total = len(models)
+    start = page * MODELS_PAGE_SIZE
+    end = min(start + MODELS_PAGE_SIZE, total)
+    rows = []
+    skipped = 0
+    for m in models[start:end]:
+        cb = f"model:pick:{page}:{m['id']}"
+        # Telegram caps callback_data at 64 bytes; skip overlong IDs to avoid API errors.
+        if len(cb.encode("utf-8")) > 64:
+            skipped += 1
+            continue
+        marker = "✅ " if m["id"] == current else ""
+        free_tag = "" if m.get("is_free") else "🔒 "
+        ctx_tag = f" · {_format_ctx(m.get('context_length', 0))}" if m.get("context_length") else ""
+        label = f"{marker}{free_tag}{_short_model_label(m)}{ctx_tag}"
+        if len(label) > 60:
+            label = label[:60]
+        rows.append([InlineKeyboardButton(
+            label,
+            callback_data=cb,
+        )])
+    if skipped:
+        logger.warning(f"Models page {page}: skipped {skipped} model(s) with overlong IDs")
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"model:page:{page - 1}"))
+    nav.append(InlineKeyboardButton(
+        f"📄 {page + 1}/{(total + MODELS_PAGE_SIZE - 1) // MODELS_PAGE_SIZE}",
+        callback_data="model:none",
+    ))
+    if end < total:
+        nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"model:page:{page + 1}"))
+    rows.append(nav)
+    action_row = [
+        InlineKeyboardButton("🔑 Connect key", callback_data="model:connect"),
+        InlineKeyboardButton("🔄 Refresh", callback_data="model:refresh"),
+    ]
+    if has_user_key:
+        action_row.append(InlineKeyboardButton("🚪 Disconnect", callback_data="model:disconnect"))
+    action_row.append(InlineKeyboardButton("↩️ Reset model", callback_data="model:reset"))
+    rows.append(action_row)
+    return InlineKeyboardMarkup(rows)
+
+
+async def cmd_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/connect` opens the provider picker. `/connect <provider>` skips straight to that one."""
     msg = update.message
-    if not msg or not msg.voice:
+    if not msg:
         return
-    user = msg.from_user
-    if not user or user.is_bot:
+    user_id = msg.from_user.id
+    ensure_user(user_id, msg.from_user.username, msg.from_user.first_name)
+    if db_is_blacklisted(user_id):
         return
-    ensure_user(user.id, user.username, user.first_name)
-    if db_is_blacklisted(user.id):
-        return
-    if is_rate_limited(user.id):
-        return
-    try:
-        await context.bot.send_chat_action(chat_id=msg.chat_id, action=ChatAction.TYPING)
-    except TelegramError:
-        pass
-    tmp_path = None
-    try:
-        file = await context.bot.get_file(msg.voice.file_id)
-        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
-            tmp_path = f.name
-        await file.download_to_drive(tmp_path)
 
-        def transcribe():
-            groq_client = get_groq_client()
-            with open(tmp_path, "rb") as audio:
-                return groq_client.audio.transcriptions.create(
-                    model="whisper-large-v3",
-                    file=audio,
-                    response_format="text",
-                )
+    args = context.args or []
+    if args and is_known_provider(args[0].lower()):
+        await _prompt_for_provider_key(msg, user_id, args[0].lower())
+        return
 
-        transcription = await asyncio.to_thread(transcribe)
-        user_msg = (transcription or "").strip()
-        if not user_msg:
+    await msg.reply_text(
+        "🔑 *Connect a provider*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Pick which API key you want to add.\n"
+        "Your key is *verified live*, then *encrypted* and stored — only you can use it.\n\n"
+        "_Tip: shortcut `/connect openai`, `/connect anthropic`, etc._",
+        parse_mode="Markdown",
+        reply_markup=_build_provider_keyboard("connect"),
+    )
+
+
+async def _prompt_for_provider_key(msg, user_id: int, provider: str, via_callback=None):
+    """Send the 'paste your key' instructions for the chosen provider."""
+    p = PROVIDERS[provider]
+    _pending_set(user_id, provider)
+    text = (
+        f"🔑 *Connect {p['emoji']} {p['label']}*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{p['blurb']}\n\n"
+        f"*How to get one:*\n"
+        f"1. Go to [{p['label']} keys page]({p['signup_url']})\n"
+        f"2. Create / copy an API key\n"
+        f"3. Paste it as your next message here\n\n"
+        f"Your key will be *verified live* against {p['label']} before saving.\n"
+        f"You have *{PENDING_KEY_TTL_SECONDS // 60} minutes* — send `/cancel` to abort."
+    )
+    if via_callback is not None:
+        await via_callback.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Cancel", callback_data="key:cancel")]
+            ]),
+        )
+    else:
+        await safe_reply(msg, text, parse_mode="Markdown")
+
+
+async def cmd_disconnect(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not msg:
+        return
+    user_id = msg.from_user.id
+    ensure_user(user_id, msg.from_user.username, msg.from_user.first_name)
+    PENDING_KEY.pop(user_id, None)
+
+    args = context.args or []
+    if args and is_known_provider(args[0].lower()):
+        provider = args[0].lower()
+        if delete_user_api_key(user_id, provider):
+            p = PROVIDERS[provider]
             await safe_reply(
                 msg,
-                "❌ *Could not transcribe your voice message.*\nPlease ensure your audio is clear and try again.",
+                f"🚪 *Disconnected {p['emoji']} {p['label']}.*\nYour stored key has been removed.",
                 parse_mode="Markdown",
             )
-            return
-        await safe_reply(msg, f"🎤 *Transcribed:*\n_{user_msg}_", parse_mode="Markdown")
-        reply = await asyncio.to_thread(get_ai_reply, user.id, user_msg)
-        if reply is None:
-            await safe_reply(
-                msg,
-                "❌ *Voice processing failed.*\n"
-                "I couldn't generate a response right now. Please try again in a moment.",
+        else:
+            await safe_reply(msg, "ℹ️ You don't have that provider connected.", parse_mode="Markdown")
+        return
+
+    connected = user_connected_providers(user_id)
+    if not connected:
+        await safe_reply(msg, "ℹ️ You don't have any provider keys connected.", parse_mode="Markdown")
+        return
+
+    await msg.reply_text(
+        "🚪 *Disconnect a provider*\n━━━━━━━━━━━━━━━━━━━━\nPick which key to remove:",
+        parse_mode="Markdown",
+        reply_markup=_build_provider_keyboard("disconnect", only_connected_for=user_id),
+    )
+
+
+async def cmd_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not msg:
+        return
+    user_id = msg.from_user.id
+    ensure_user(user_id, msg.from_user.username, msg.from_user.first_name)
+    connected = set(user_connected_providers(user_id))
+    lines = ["🔑 *Your connected providers*", "━━━━━━━━━━━━━━━━━━━━"]
+    for name, p in PROVIDERS.items():
+        mark = "✅" if name in connected else "⚪"
+        suffix = "*connected*" if name in connected else "_not connected_"
+        lines.append(f"{mark} {p['emoji']} {p['label']} — {suffix}")
+    lines.append("")
+    lines.append("Use `/connect` to add more, `/disconnect` to remove.")
+    await safe_reply(msg, "\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not msg:
+        return
+    user_id = msg.from_user.id
+    if PENDING_KEY.pop(user_id, None):
+        await safe_reply(msg, "❌ Cancelled. No key was saved.", parse_mode="Markdown")
+    else:
+        await safe_reply(msg, "Nothing to cancel.", parse_mode="Markdown")
+
+
+async def callback_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    user_id = query.from_user.id
+    parts = (query.data or "").split(":", 2)
+    if len(parts) < 2 or parts[0] != "key":
+        return
+    action = parts[1]
+
+    if action == "cancel":
+        PENDING_KEY.pop(user_id, None)
+        await query.edit_message_text("❌ Cancelled. No changes made.")
+        return
+
+    if len(parts) < 3 or not is_known_provider(parts[2]):
+        return
+    provider = parts[2]
+
+    if action == "connect":
+        await _prompt_for_provider_key(query.message, user_id, provider, via_callback=query)
+        return
+
+    if action == "disconnect":
+        if delete_user_api_key(user_id, provider):
+            p = PROVIDERS[provider]
+            await query.edit_message_text(
+                f"🚪 *Disconnected {p['emoji']} {p['label']}.*\nYour stored key has been removed.",
                 parse_mode="Markdown",
             )
-            return
-        
-        save_message(user.id, "user", user_msg)
-        save_message(user.id, "assistant", reply)
-        await safe_reply(msg, reply)
+        else:
+            await query.edit_message_text("ℹ️ That provider wasn't connected.", parse_mode="Markdown")
+        return
+
+
+async def _save_user_key(user_id: int, provider: str, plaintext: str) -> bool:
+    def _do_save() -> bool:
+        cipher = encrypt_api_key(plaintext.strip())
+        return set_user_api_key(user_id, provider, cipher)
+    try:
+        return await asyncio.to_thread(_do_save)
     except Exception as e:
-        logger.exception(f"Voice error: {e}")
+        logger.error(f"Failed to save user key ({provider}): {e}")
+        return False
+
+
+async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not msg:
+        return
+    user_id = msg.from_user.id
+    ensure_user(user_id, msg.from_user.username, msg.from_user.first_name)
+    if db_is_blacklisted(user_id):
+        return
+
+    current = get_chat_model(user_id) or resolve_model()
+    default = load_config().CHAT_MODEL
+    has_key = user_has_key(user_id)
+    connected = user_connected_providers(user_id)
+
+    args = context.args or []
+    if args and args[0].lower() in ("reset", "default", "clear"):
+        set_chat_model(user_id, None)
         await safe_reply(
             msg,
-            "❌ *Voice processing failed.*\nPlease try again or type your message instead.",
+            f"↩️ *Model reset to default.*\n\nYou're now using: `{default}`",
             parse_mode="Markdown",
         )
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+        return
+
+    models = await asyncio.to_thread(fetch_all_models)
+    if not models:
+        await safe_reply(
+            msg,
+            "❌ *Could not load the model list right now.*\nPlease try again in a moment.",
+            parse_mode="Markdown",
+        )
+        return
+
+    if connected:
+        provider_chips = " ".join(f"{PROVIDERS[p]['emoji']}" for p in connected)
+        key_status = f"🔑 *Your keys:* {provider_chips} ({len(connected)} connected)"
+    else:
+        key_status = "🔓 *Your keys:* none connected (free models only)"
+    body = (
+        f"🤖 *Choose your AI model*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"*Current:* `{current}`\n"
+        f"*Default:* `{default}`\n"
+        f"{key_status}\n\n"
+        f"Free models work with the bot's key. 🔒 models need *your own* key for the "
+        f"matching provider (or any OpenRouter key).\n"
+        f"Use `/model reset` to go back to the default. Use `/keys` to manage providers."
+    )
+    await msg.reply_text(
+        body,
+        parse_mode="Markdown",
+        reply_markup=_build_models_keyboard(models, 0, current, has_key),
+    )
+
+
+async def callback_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    data = (query.data or "").split(":", 1)
+    if len(data) < 2 or data[0] != "menu":
+        return
+    action = data[1]
+    user_id = query.from_user.id
+
+    if action == "reset":
+        clear_history(user_id)
+        await query.message.reply_text(
+            "🔄 *Conversation cleared.*\nStarting fresh — what would you like to talk about?",
+            parse_mode="Markdown",
+        )
+        return
+
+    if action == "help":
+        await query.message.reply_text(
+            HELP_TEXT, parse_mode="Markdown", reply_markup=build_menu_keyboard()
+        )
+        return
+
+    hints = {
+        "search": (
+            "🔍 *Web Search*\n\n"
+            "Type:\n`/search <your query>`\n\n"
+            "_Example:_ `/search latest AI news 2026`"
+        ),
+        "imagine": (
+            "🎨 *Image Generation*\n\n"
+            "Type:\n`/imagine <description>`\n\n"
+            "_Example:_ `/imagine a futuristic city at sunset, cinematic, 4K`"
+        ),
+        "summarize": (
+            "📝 *Summarize*\n\n"
+            "Type:\n`/summarize <text to summarize>`"
+        ),
+        "setprompt": (
+            "🧠 *Set Custom Personality*\n\n"
+            "Type:\n`/setprompt <instructions>`\n\n"
+            "_Example:_ `/setprompt Act as a senior Python developer.`"
+        ),
+    }
+    if action in hints:
+        await query.message.reply_text(hints[action], parse_mode="Markdown")
+
+
+async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    user_id = query.from_user.id
+    data = (query.data or "").split(":")
+
+    if len(data) < 2 or data[0] != "model":
+        return
+
+    action = data[1]
+
+    if action == "none":
+        return
+
+    if action == "connect":
+        await query.edit_message_text(
+            "🔑 *Connect a provider*\n\n"
+            "Pick which API key you want to add.\n"
+            "Your key is verified live, then encrypted and stored.",
+            parse_mode="Markdown",
+            reply_markup=_build_provider_keyboard("connect"),
+        )
+        return
+
+    if action == "disconnect":
+        connected = user_connected_providers(user_id)
+        if not connected:
+            await query.answer("No keys connected", show_alert=False)
+            await query.edit_message_text(
+                "ℹ️ You don't have any provider keys connected.",
+                parse_mode="Markdown",
+            )
+            return
+        await query.edit_message_text(
+            "🚪 *Disconnect a provider*\n\nPick which key to remove:",
+            parse_mode="Markdown",
+            reply_markup=_build_provider_keyboard("disconnect", only_connected_for=user_id),
+        )
+        return
+
+    if action == "open":
+        models = await asyncio.to_thread(fetch_all_models)
+        current = get_chat_model(user_id) or resolve_model()
+        has_key = user_has_key(user_id)
+        connected = user_connected_providers(user_id)
+        if not models:
+            await query.edit_message_text(
+                "❌ *Could not load the model list right now.*\nPlease try again in a moment.",
+                parse_mode="Markdown",
+            )
+            return
+        if connected:
+            provider_chips = " ".join(f"{PROVIDERS[p]['emoji']}" for p in connected)
+            key_status = f"🔑 *Your keys:* {provider_chips} ({len(connected)} connected)"
+        else:
+            key_status = "🔓 *Your keys:* none connected (free models only)"
+        body = (
+            f"🤖 *Choose your AI model*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*Current:* `{current}`\n"
+            f"*Default:* `{load_config().CHAT_MODEL}`\n"
+            f"{key_status}\n\n"
+            f"Free models work with the bot's key. 🔒 models need *your own* key."
+        )
+        await query.edit_message_text(
+            body,
+            parse_mode="Markdown",
+            reply_markup=_build_models_keyboard(models, 0, current, has_key),
+        )
+        return
+
+    if action == "refresh":
+        models = await asyncio.to_thread(fetch_all_models, True)
+        current = get_chat_model(user_id) or resolve_model()
+        has_key = user_has_key(user_id)
+        await query.edit_message_reply_markup(_build_models_keyboard(models, 0, current, has_key))
+        return
+
+    if action == "reset":
+        set_chat_model(user_id, None)
+        default = load_config().CHAT_MODEL
+        await query.edit_message_text(
+            f"↩️ *Model reset to default.*\n\nYou're now using: `{default}`",
+            parse_mode="Markdown",
+        )
+        return
+
+    if action == "page":
+        page = int(data[2]) if len(data) > 2 else 0
+        models = await asyncio.to_thread(fetch_all_models)
+        current = get_chat_model(user_id) or resolve_model()
+        has_key = user_has_key(user_id)
+        if not models:
+            return
+        max_page = max(0, (len(models) - 1) // MODELS_PAGE_SIZE)
+        page = max(0, min(page, max_page))
+        await query.edit_message_reply_markup(_build_models_keyboard(models, page, current, has_key))
+        return
+
+    if action == "pick":
+        model_id = ":".join(data[3:])
+        if not model_id:
+            return
+        # Guard: paid models require the user's own key for the matching provider,
+        # otherwise the bot's account would be billed for this user's chats.
+        models = await asyncio.to_thread(fetch_all_models)
+        model_info = next((m for m in models if m["id"] == model_id), None)
+        if model_info and not model_info["is_free"] and not can_use_paid_model(user_id, model_id):
+            await query.answer("Paid model — connect a matching key first", show_alert=True)
+            await query.message.reply_text(
+                "🔒 *That model requires your own API key.*\n\n"
+                "Connect either an *OpenRouter* key (works for any model) or the "
+                "direct provider key for this model (cheaper). Tap `/connect`.\n"
+                "Or pick a model not marked 🔒.",
+                parse_mode="Markdown",
+            )
+            return
+        set_chat_model(user_id, model_id)
+        await query.edit_message_text(
+            f"✅ *Model set!*\n\nYou're now using: `{model_id}`\n\n"
+            f"_Tip: `/model reset` to go back to default, `/keys` to manage your providers._",
+            parse_mode="Markdown",
+        )
+        return
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -717,6 +1290,14 @@ async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_id = int(context.args[0])
     except ValueError:
         await safe_reply(msg, "❌ Invalid user ID.")
+        return
+    cfg = load_config()
+    if target_id == msg.from_user.id or target_id == cfg.OWNER_ID or target_id == cfg.BOT_ID:
+        await safe_reply(
+            msg,
+            "❌ You can't blacklist yourself, the bot owner, or the bot itself.",
+            parse_mode="Markdown",
+        )
         return
     if set_blacklist(target_id, True):
         await safe_reply(msg, f"🚫 User `{target_id}` blacklisted.", parse_mode="Markdown")
@@ -788,11 +1369,18 @@ def register_handlers(app):
     app.add_handler(CommandHandler("translate",   cmd_translate))
     app.add_handler(CommandHandler("setprompt",   cmd_setprompt))
     app.add_handler(CommandHandler("clearprompt", cmd_clearprompt))
+    app.add_handler(CommandHandler("model",       cmd_model))
+    app.add_handler(CommandHandler("connect",     cmd_connect))
+    app.add_handler(CommandHandler("disconnect",  cmd_disconnect))
+    app.add_handler(CommandHandler("keys",        cmd_keys))
+    app.add_handler(CommandHandler("cancel",      cmd_cancel))
+    app.add_handler(CallbackQueryHandler(callback_model, pattern=r"^model:"))
+    app.add_handler(CallbackQueryHandler(callback_menu,  pattern=r"^menu:"))
+    app.add_handler(CallbackQueryHandler(callback_key,   pattern=r"^key:"))
     app.add_handler(CommandHandler("stats",       cmd_stats))
     app.add_handler(CommandHandler("blacklist",   cmd_blacklist))
     app.add_handler(CommandHandler("unblacklist", cmd_unblacklist))
     app.add_handler(CommandHandler("broadcast",   cmd_broadcast))
 
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_business_message))
     app.add_handler(MessageHandler((filters.TEXT | filters.Document.ALL) & ~filters.COMMAND, handle_message))

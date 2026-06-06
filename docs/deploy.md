@@ -5,4 +5,4 @@ Common options:
 - Heroku: use Procfile and set required environment variables.
 - CI: the GitHub Actions workflow runs tests on push and PRs.
 
-Secrets (GROQ_API_KEY, SERPER_API_KEY, TOGETHER_API_KEY, TELEGRAM_TOKEN, DATABASE_URL) should be stored in your hosting provider's secret store.
+Secrets (OPENROUTER_API_KEY, SERPER_API_KEY, TOGETHER_API_KEY, TELEGRAM_TOKEN, DATABASE_URL) should be stored in your hosting provider's secret store.

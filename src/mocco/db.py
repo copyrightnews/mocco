@@ -57,9 +57,20 @@ def init_db():
                     username       TEXT,
                     first_name     TEXT,
                     custom_prompt  TEXT,
+                    chat_model     TEXT,
                     is_blacklisted BOOLEAN DEFAULT FALSE,
                     message_count  INTEGER DEFAULT 0,
                     created_at     TIMESTAMP DEFAULT NOW()
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_api_keys (
+                    user_id     BIGINT NOT NULL,
+                    provider    TEXT NOT NULL,
+                    key_cipher  TEXT NOT NULL,
+                    created_at  TIMESTAMP DEFAULT NOW(),
+                    updated_at  TIMESTAMP DEFAULT NOW(),
+                    PRIMARY KEY (user_id, provider)
                 );
             """)
             cur.execute("""
@@ -75,6 +86,10 @@ def init_db():
                 CREATE INDEX IF NOT EXISTS idx_messages_user_id
                 ON messages(user_id, id);
             """)
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_model TEXT")
+            except Exception:
+                pass
             conn.commit()
     logger.info("Database initialized")
 
@@ -180,6 +195,105 @@ def set_custom_prompt(user_id: int, prompt: Optional[str]):
                 conn.commit()
     except Exception as e:
         logger.error(f"set_custom_prompt failed: {e}")
+
+
+def get_chat_model(user_id: int) -> Optional[str]:
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT chat_model FROM users WHERE user_id = %s",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+                return row["chat_model"] if row and row["chat_model"] else None
+    except Exception as e:
+        logger.error(f"get_chat_model failed: {e}")
+        return None
+
+
+def set_chat_model(user_id: int, model: Optional[str]):
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO users (user_id, chat_model)
+                    VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET chat_model = EXCLUDED.chat_model
+                    """,
+                    (user_id, model),
+                )
+                conn.commit()
+    except Exception as e:
+        logger.error(f"set_chat_model failed: {e}")
+
+
+def get_user_api_key(user_id: int, provider: str) -> Optional[str]:
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT key_cipher FROM user_api_keys WHERE user_id = %s AND provider = %s",
+                    (user_id, provider),
+                )
+                row = cur.fetchone()
+                return row["key_cipher"] if row else None
+    except Exception as e:
+        logger.error(f"get_user_api_key failed: {e}")
+        return None
+
+
+def set_user_api_key(user_id: int, provider: str, key_cipher: str) -> bool:
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO user_api_keys (user_id, provider, key_cipher)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id, provider) DO UPDATE
+                    SET key_cipher = EXCLUDED.key_cipher,
+                        updated_at = NOW()
+                    """,
+                    (user_id, provider, key_cipher),
+                )
+                conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"set_user_api_key failed: {e}")
+        return False
+
+
+def delete_user_api_key(user_id: int, provider: str) -> bool:
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM user_api_keys WHERE user_id = %s AND provider = %s",
+                    (user_id, provider),
+                )
+                conn.commit()
+                return cur.rowcount > 0
+    except Exception as e:
+        logger.error(f"delete_user_api_key failed: {e}")
+        return False
+
+
+def get_all_user_keys(user_id: int) -> List[Tuple[str, str]]:
+    """Return [(provider, key_cipher), ...] for every key this user has stored."""
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT provider, key_cipher FROM user_api_keys WHERE user_id = %s",
+                    (user_id,),
+                )
+                return [(r["provider"], r["key_cipher"]) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"get_all_user_keys failed: {e}")
+        return []
 
 
 def get_stats() -> Tuple[int, int, int]:

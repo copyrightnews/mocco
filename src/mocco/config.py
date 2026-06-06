@@ -1,16 +1,19 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 import os
-from typing import Optional
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_CHAT_MODEL = "minimax/minimax-m2.5:free"
 
 @dataclass
 class Config:
     TELEGRAM_TOKEN: str
-    GROQ_API_KEY: str
+    OPENROUTER_API_KEY: str
     SERPER_API_KEY: str
     TOGETHER_API_KEY: str
     DATABASE_URL: str
     OWNER_ID: int
     BOT_ID: int
+    CHAT_MODEL: str = DEFAULT_CHAT_MODEL
     LOG_LEVEL: str = "INFO"
 
 def load_config() -> Config:
@@ -21,7 +24,7 @@ def load_config() -> Config:
     """
     required = [
         "TELEGRAM_TOKEN",
-        "GROQ_API_KEY",
+        "OPENROUTER_API_KEY",
         "SERPER_API_KEY",
         "TOGETHER_API_KEY",
         "DATABASE_URL",
@@ -35,11 +38,12 @@ def load_config() -> Config:
 
     return Config(
         TELEGRAM_TOKEN=os.environ["TELEGRAM_TOKEN"],
-        GROQ_API_KEY=os.environ["GROQ_API_KEY"],
+        OPENROUTER_API_KEY=os.environ["OPENROUTER_API_KEY"],
         SERPER_API_KEY=os.environ["SERPER_API_KEY"],
         TOGETHER_API_KEY=os.environ["TOGETHER_API_KEY"],
         DATABASE_URL=os.environ["DATABASE_URL"],
         OWNER_ID=owner,
         BOT_ID=bot,
+        CHAT_MODEL=os.environ.get("CHAT_MODEL", DEFAULT_CHAT_MODEL),
         LOG_LEVEL=os.environ.get("LOG_LEVEL", "INFO"),
     )
