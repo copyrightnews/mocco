@@ -1,8 +1,10 @@
 import logging
+import os
 from typing import Optional, List, Tuple
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from .config import load_config
+from .migrate import apply_migrations
 
 logger = logging.getLogger("mocco")
 
@@ -97,6 +99,8 @@ def init_db():
                 cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_model TEXT")
             except Exception:
                 pass
+            migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")
+            apply_migrations(conn, migrations_dir)
             conn.commit()
     logger.info("Database initialized")
 
