@@ -26,7 +26,7 @@ def ensure_schema_migrations_table(conn) -> None:
 def _applied_versions(conn) -> set[str]:
     with conn.cursor() as cur:
         cur.execute("SELECT version FROM schema_migrations")
-        return {r[0] for r in cur.fetchall()}
+        return {r["version"] for r in cur.fetchall()}
 
 
 def apply_migrations(conn, migrations_dir: str | os.PathLike) -> list[str]:
