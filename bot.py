@@ -42,6 +42,19 @@ def main():
             "The bot will still run — users can /connect their own API keys to enable the corresponding features."
         )
         logger.warning("=" * 60)
+    if not cfg.ENCRYPTION_KEY:
+        logger.warning("=" * 60)
+        logger.warning(
+            "ENCRYPTION_KEY is not in env. The bot will auto-generate one and"
+        )
+        logger.warning(
+            "store it in the database on first /connect. To make it stable across"
+        )
+        logger.warning(
+            "DB resets, copy the printed key into Railway as ENCRYPTION_KEY after"
+        )
+        logger.warning("the first /connect succeeds.")
+        logger.warning("=" * 60)
 
     try:
         init_db()

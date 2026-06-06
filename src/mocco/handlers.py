@@ -914,13 +914,13 @@ async def cmd_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if db_is_blacklisted(user_id):
         return
 
-    from .config import load_config
-    if not load_config().ENCRYPTION_KEY:
+    from .crypto import _get_key, EncryptionKeyMissing
+    try:
+        _get_key()  # triggers DB lookup / auto-generation
+    except EncryptionKeyMissing as e:
         await safe_reply(
             msg,
-            "❌ *Key storage is not configured by the bot owner.*\n"
-            "The bot's `ENCRYPTION_KEY` env var is missing, so I can't safely save your API key.\n\n"
-            "Please ask the bot owner to set it (see `.env.example`).",
+            f"❌ *Key storage is not available right now.*\n{str(e)}",
             parse_mode="Markdown",
         )
         return

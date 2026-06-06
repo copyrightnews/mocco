@@ -86,6 +86,13 @@ def init_db():
                 CREATE INDEX IF NOT EXISTS idx_messages_user_id
                 ON messages(user_id, id);
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS bot_config (
+                    key        TEXT PRIMARY KEY,
+                    value      TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT NOW()
+                );
+            """)
             try:
                 cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_model TEXT")
             except Exception:
@@ -338,3 +345,37 @@ def get_all_active_users() -> List[int]:
     except Exception as e:
         logger.error(f"get_all_active_users failed: {e}")
         return []
+
+
+def get_bot_config(key: str) -> Optional[str]:
+    """Read a single key from the bot_config table. Returns None if missing."""
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT value FROM bot_config WHERE key = %s", (key,))
+                row = cur.fetchone()
+                return row["value"] if row else None
+    except Exception as e:
+        logger.error(f"get_bot_config failed: {e}")
+        return None
+
+
+def set_bot_config(key: str, value: str) -> bool:
+    """Upsert a key/value into bot_config. Returns True on success."""
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO bot_config (key, value, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (key) DO UPDATE
+                    SET value = EXCLUDED.value, updated_at = NOW()
+                    """,
+                    (key, value),
+                )
+                conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"set_bot_config failed: {e}")
+        return False
