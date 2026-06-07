@@ -1193,9 +1193,17 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if connected:
         provider_chips = ", ".join(PROVIDERS[p]['label'] for p in connected)
-        key_status = f"*Your keys:* {provider_chips} ({len(connected)} connected)"
+        direct_providers = [p for p in connected if PROVIDERS[p].get("direct_route_prefix")]
+        if direct_providers:
+            key_status = (
+                f"*Your keys:* {provider_chips} ({len(connected)} connected)\n"
+                f"_Showing only models from your connected providers. "
+                f"Disconnect one from /keys to see the full catalog._"
+            )
+        else:
+            key_status = f"*Your keys:* {provider_chips} ({len(connected)} connected)"
     else:
-        key_status = "*Your keys:* none connected (free models only)"
+        key_status = "*Your keys:* none connected — showing the public catalog. `/connect` to add your own."
     body = (
         f"*Choose your AI model*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -1321,9 +1329,17 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if connected:
             provider_chips = ", ".join(PROVIDERS[p]['label'] for p in connected)
-            key_status = f"*Your keys:* {provider_chips} ({len(connected)} connected)"
+            direct_providers = [p for p in connected if PROVIDERS[p].get("direct_route_prefix")]
+            if direct_providers:
+                key_status = (
+                    f"*Your keys:* {provider_chips} ({len(connected)} connected)\n"
+                    f"_Showing only models from your connected providers. "
+                    f"Disconnect one from /keys to see the full catalog._"
+                )
+            else:
+                key_status = f"*Your keys:* {provider_chips} ({len(connected)} connected)"
         else:
-            key_status = "*Your keys:* none connected (free models only)"
+            key_status = "*Your keys:* none connected — showing the public catalog. `/connect` to add your own."
         body = (
             f"*Choose your AI model*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
