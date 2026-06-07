@@ -444,18 +444,30 @@ async def process_message(update, context, msg, business_connection_id=None):
 
     async def _animate_dots():
         nonlocal thinking_dots_stop
-        dots = 0
+        frames = [
+            "\u2728 *Thinking*",
+            "\u2728 *Thinking.*",
+            "\u2728 *Thinking..*",
+            "\u2728 *Thinking...*",
+            "\ud83d\udcad *Thinking...*",
+            "\ud83e\udd14 *Thinking...*",
+            "\ud83e\udd14 *Thinking..*",
+            "\ud83e\udd14 *Thinking.*",
+            "\ud83d\udcad *Thinking*",
+            "\ud83e\udd14 *Thinking*",
+        ]
+        i = 0
         while not thinking_dots_stop:
-            await asyncio.sleep(0.28)
-            dots = (dots % 3) + 1
+            await asyncio.sleep(0.55)
             if thinking_dots_stop:
                 break
             try:
                 if thinking_msg:
                     await thinking_msg.edit_text(
-                        f"\u2728 *Thinking{'.' * dots}*",
+                        frames[i % len(frames)],
                         parse_mode="Markdown",
                     )
+                i += 1
             except TelegramError:
                 break
 
