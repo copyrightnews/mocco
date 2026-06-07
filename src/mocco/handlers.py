@@ -446,7 +446,7 @@ async def process_message(update, context, msg, business_connection_id=None):
         nonlocal thinking_dots_stop
         dots = 0
         while not thinking_dots_stop:
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(0.28)
             dots = (dots % 3) + 1
             if thinking_dots_stop:
                 break
