@@ -37,6 +37,7 @@ PROVIDERS = {
         "blurb": "Direct billing. Used automatically when you pick an `openai/...` model.",
         "known_models": [
             "gpt-5.5",
+            "gpt-5.5-pro",
             "gpt-5.4",
             "gpt-5.4-mini",
             "gpt-5.4-nano",
@@ -79,8 +80,8 @@ PROVIDERS = {
         "signup_url": "https://aistudio.google.com/apikey",
         "blurb": "Gemini models, direct billing. Used when you pick a `google/...` model.",
         "known_models": [
-            "gemini-3.1-pro-preview",
             "gemini-3.5-flash",
+            "gemini-3.1-pro-preview",
             "gemini-3.1-flash-lite",
             "gemini-3-flash-preview",
             "gemini-2.5-pro",
@@ -120,14 +121,17 @@ PROVIDERS = {
         "signup_url": "https://api.together.xyz/settings/api-keys",
         "blurb": "Open-source models + image gen. Used when you pick a `together/...` model.",
         "known_models": [
-            "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-            "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
             "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
             "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+            "Qwen/Qwen3.7-Max",
+            "Qwen/Qwen3.6-Plus",
             "Qwen/Qwen3-235B-A22B-Instruct-2507-tput",
             "Qwen/Qwen3.5-9B",
-            "deepseek-ai/DeepSeek-V3.1",
             "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+            "deepseek-ai/DeepSeek-V4-Pro",
+            "MiniMaxAI/MiniMax-M2.7",
         ],
     },
 }

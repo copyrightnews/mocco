@@ -36,8 +36,9 @@ ALL_MODELS_CACHE: List[dict] = []
 ALL_MODELS_CACHE_TIME: float = 0.0
 MODELS_CACHE_TTL = 3600
 
-# Curated 2026 picks shown first in the OpenRouter catalog picker. Anything
-# not listed here follows alphabetically after. Order = display order.
+# Curated June 2026 picks shown first in the OpenRouter catalog picker.
+# Anything not listed here follows alphabetically after. Order = display order.
+# If a model ID is no longer live on OpenRouter it is silently skipped.
 FEATURED_FREE_IDS = [
     "openai/gpt-oss-120b:free",
     "openai/gpt-oss-20b:free",
@@ -57,25 +58,28 @@ FEATURED_FREE_IDS = [
     "openrouter/owl-alpha",
 ]
 FEATURED_PAID_IDS = [
-    "openai/gpt-5",
-    "openai/gpt-5-mini",
-    "anthropic/claude-sonnet-4.5",
-    "anthropic/claude-opus-4.5",
+    "openai/gpt-5.5",
+    "openai/gpt-5.5-pro",
+    "openai/gpt-5.4",
+    "openai/gpt-5.4-mini",
+    "anthropic/claude-opus-4-8",
+    "anthropic/claude-sonnet-4-6",
+    "anthropic/claude-haiku-4-5",
+    "google/gemini-3.5-flash",
     "google/gemini-2.5-pro",
     "google/gemini-2.5-flash",
     "x-ai/grok-4",
     "meta-llama/llama-4-maverick",
     "meta-llama/llama-4-scout",
-    "deepseek/deepseek-chat-v3.1",
+    "deepseek/deepseek-chat-v3",
     "qwen/qwen3-235b-a22b-instruct",
     "mistralai/mistral-large-2",
 ]
 
-# Free model ids that are old / stale — drop from the picker. The list is
-# checked case-sensitively against the OpenRouter model id.
+# Free model ids that are old / stale — dropped from the picker silently.
 HIDDEN_FREE_IDS = {
-    "meta-llama/llama-3.2-3b-instruct:free",   # 2024-09, 3B — superseded
-    "nousresearch/hermes-3-llama-3.1-405b:free",  # 2024-08 — superseded
+    "meta-llama/llama-3.2-3b-instruct:free",       # Sep 2024, 3B
+    "nousresearch/hermes-3-llama-3.1-405b:free",   # Aug 2024
 }
 
 
@@ -281,17 +285,17 @@ def fetch_all_models(force: bool = False, user_id: Optional[int] = None) -> List
         logger.warning(f"fetch_all_models failed: {e}")
         if ALL_MODELS_CACHE:
             return list(ALL_MODELS_CACHE)
-        # Fallback to current featured free models only — these are confirmed
-        # to be live on OpenRouter as of Jan 2026.
+        # Fallback defaults — confirmed live on OpenRouter as of June 2026.
         return [
             {"id": "openai/gpt-oss-120b:free", "name": "OpenAI: gpt-oss-120b (free)", "context_length": 131072, "is_free": True, "pricing": {}},
+            {"id": "openai/gpt-oss-20b:free", "name": "OpenAI: gpt-oss-20b (free)", "context_length": 131072, "is_free": True, "pricing": {}},
             {"id": "qwen/qwen3-coder:free", "name": "Qwen: Qwen3 Coder 480B A35B (free)", "context_length": 1048576, "is_free": True, "pricing": {}},
             {"id": "qwen/qwen3-next-80b-a3b-instruct:free", "name": "Qwen: Qwen3 Next 80B A3B Instruct (free)", "context_length": 262144, "is_free": True, "pricing": {}},
             {"id": "nvidia/nemotron-3-ultra-550b-a55b:free", "name": "NVIDIA: Nemotron 3 Ultra (free)", "context_length": 1000000, "is_free": True, "pricing": {}},
             {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Meta: Llama 3.3 70B Instruct (free)", "context_length": 131072, "is_free": True, "pricing": {}},
-            {"id": "google/gemini-2.5-pro", "name": "Google: Gemini 2.5 Pro", "context_length": 1000000, "is_free": False, "pricing": {}},
-            {"id": "anthropic/claude-sonnet-4.5", "name": "Anthropic: Claude Sonnet 4.5", "context_length": 1000000, "is_free": False, "pricing": {}},
-            {"id": "openai/gpt-5", "name": "OpenAI: GPT-5", "context_length": 1000000, "is_free": False, "pricing": {}},
+            {"id": "anthropic/claude-opus-4-8", "name": "Anthropic: Claude Opus 4.8", "context_length": 1000000, "is_free": False, "pricing": {}},
+            {"id": "google/gemini-3.5-flash", "name": "Google: Gemini 3.5 Flash", "context_length": 1000000, "is_free": False, "pricing": {}},
+            {"id": "openai/gpt-5.5", "name": "OpenAI: GPT-5.5", "context_length": 1000000, "is_free": False, "pricing": {}},
         ]
 
 
