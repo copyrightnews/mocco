@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import functools
 import tempfile
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -56,6 +57,11 @@ logger = logging.getLogger("mocco")
 BROADCAST_CHUNK = 25
 
 TMA_URL = os.environ.get("TMA_URL", "")  # e.g. https://mocco.vercel.app
+
+ACCESS_DENIED_TEXT = (
+    "🔒 *Access denied.*\n"
+    "This bot is private. If you think this is a mistake, contact the bot owner."
+)
 
 WELCOME_TEXT = (
     "*Hi, I'm Mocco* — your smart, fast, and reliable AI assistant.\n"
@@ -147,6 +153,43 @@ def is_owner(update: Update) -> bool:
     return bool(update.effective_user and update.effective_user.id == cfg.OWNER_ID)
 
 
+def _is_owner_set() -> bool:
+    return load_config().OWNER_ID != 0
+
+
+def owner_only(handler):
+    """Decorator: when OWNER_ID is set, allow only that user; reply with access denied otherwise.
+
+    When OWNER_ID is unset (0) the handler runs unrestricted.
+    """
+
+    @functools.wraps(handler)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        cfg = load_config()
+        if cfg.OWNER_ID == 0:
+            return await handler(update, context, *args, **kwargs)
+        user = update.effective_user
+        if not user or user.id != cfg.OWNER_ID:
+            uid = user.id if user else "unknown"
+            logger.info(f"Blocked non-owner {uid} from {handler.__name__}")
+            msg = update.effective_message
+            if msg:
+                try:
+                    await safe_reply(msg, ACCESS_DENIED_TEXT, parse_mode="Markdown")
+                except Exception:
+                    pass
+            query = getattr(update, "callback_query", None)
+            if query is not None:
+                try:
+                    await query.answer("Access denied.", show_alert=False)
+                except TelegramError:
+                    pass
+            return None
+        return await handler(update, context, *args, **kwargs)
+
+    return wrapper
+
+
 async def safe_reply(msg, text, parse_mode=None, business_connection_id=None,
                      bot=None, reply_markup=None):
     chunks = split_message(text)
@@ -190,6 +233,21 @@ async def process_message(update, context, msg, business_connection_id=None):
 
     user = msg.from_user
     if not user or user.is_bot:
+        return
+
+    cfg = load_config()
+    if cfg.OWNER_ID != 0 and user.id != cfg.OWNER_ID:
+        logger.info(f"Blocked non-owner message from user {user.id}")
+        try:
+            await safe_reply(
+                msg,
+                ACCESS_DENIED_TEXT,
+                parse_mode="Markdown",
+                business_connection_id=business_connection_id,
+                bot=context.bot,
+            )
+        except Exception:
+            pass
         return
 
     # ── Telegram Business Connection Loop Protection ──────────────────────────────
@@ -501,6 +559,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await process_message(update, context, msg)
 
 
+@owner_only
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -515,6 +574,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg.reply_text(WELCOME_TEXT, parse_mode="Markdown", reply_markup=kb)
 
 
+@owner_only
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -522,6 +582,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg.reply_text(HELP_TEXT, parse_mode="Markdown", reply_markup=build_menu_keyboard())
 
 
+@owner_only
 async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -533,6 +594,7 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@owner_only
 async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -545,6 +607,7 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@owner_only
 async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -568,6 +631,7 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_reply(msg, f"*Results for:* `{query}`\n\n{search_text}", parse_mode="Markdown")
 
 
+@owner_only
 async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -627,6 +691,7 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_reply(msg, "*Summarization failed.*\nPlease try again.", parse_mode="Markdown")
 
 
+@owner_only
 async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -694,6 +759,7 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_reply(msg, f"*Translation to {lang} failed.*\nPlease try again.", parse_mode="Markdown")
 
 
+@owner_only
 async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -723,6 +789,7 @@ async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@owner_only
 async def cmd_clearprompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -852,6 +919,7 @@ def _build_models_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
+@owner_only
 async def cmd_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/connect` opens the provider picker. `/connect <provider>` skips straight to that one."""
     msg = update.message
@@ -917,6 +985,7 @@ async def _prompt_for_provider_key(msg, user_id: int, provider: str, via_callbac
         await safe_reply(msg, text, parse_mode="Markdown")
 
 
+@owner_only
 async def cmd_disconnect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -951,6 +1020,7 @@ async def cmd_disconnect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@owner_only
 async def cmd_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -968,6 +1038,7 @@ async def cmd_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_reply(msg, "\n".join(lines), parse_mode="Markdown")
 
 
+@owner_only
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -979,6 +1050,7 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(msg, "Nothing to cancel.", parse_mode="Markdown")
 
 
+@owner_only
 async def callback_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
@@ -1026,6 +1098,7 @@ async def _save_user_key(user_id: int, provider: str, plaintext: str) -> bool:
         return False
 
 
+@owner_only
 async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -1081,6 +1154,7 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@owner_only
 async def callback_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
@@ -1126,6 +1200,7 @@ async def callback_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(hints[action], parse_mode="Markdown")
 
 
+@owner_only
 async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
@@ -1254,6 +1329,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
+@owner_only
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or not is_owner(update):
@@ -1274,6 +1350,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@owner_only
 async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or not is_owner(update):
@@ -1300,6 +1377,7 @@ async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(msg, "Failed to blacklist user.")
 
 
+@owner_only
 async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or not is_owner(update):
@@ -1318,6 +1396,7 @@ async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(msg, "Failed to update user.")
 
 
+@owner_only
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or not is_owner(update):

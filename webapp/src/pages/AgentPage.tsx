@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ChatPanel } from "../components/ChatPanel";
 import { ErrorBoundary } from "../components/ErrorBoundary";
-import { api } from "../lib/api";
+import { AccessDenied } from "../components/AccessDenied";
+import { api, ApiError } from "../lib/api";
 import { useUserStore } from "../stores/useUserStore";
 import { useToastStore } from "../stores/useToastStore";
 
@@ -17,6 +18,7 @@ type MeResponse = {
 export function AgentPage() {
   const setMe = useUserStore((s) => s.setMe);
   const pushToast = useToastStore((s) => s.push);
+  const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -35,10 +37,17 @@ export function AgentPage() {
           },
         });
       } catch (e) {
-        pushToast({ type: "error", text: (e as Error).message });
+        const err = e as ApiError;
+        if (err.status === 403 && err.code === "forbidden") {
+          setForbidden(true);
+        } else {
+          pushToast({ type: "error", text: err.message || "Failed to load user." });
+        }
       }
     })();
   }, [setMe, pushToast]);
+
+  if (forbidden) return <AccessDenied />;
 
   return <ErrorBoundary><ChatPanel /></ErrorBoundary>;
 }

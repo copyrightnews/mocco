@@ -42,6 +42,8 @@ def current_user(
         max_age_s=_max_age_for(request.method),
     )
     tg_id = int(user["id"])
+    if cfg.OWNER_ID != 0 and tg_id != cfg.OWNER_ID:
+        raise ApiError(403, "forbidden", "Access denied. This bot is private.")
     if is_blacklisted(tg_id):
         raise ApiError(403, "forbidden", "This account is blocked.")
     name = user.get("first_name") or user.get("username") or ""
