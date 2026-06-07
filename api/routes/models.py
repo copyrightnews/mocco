@@ -15,7 +15,7 @@ router = APIRouter()
 
 @router.get("/models")
 def list_models(user_id: int = Depends(current_user)):
-    models = fetch_all_models(force=False)
+    models = fetch_all_models(force=False, user_id=user_id)
     # Trim to fields the TMA needs.
     return [
         {
@@ -23,6 +23,7 @@ def list_models(user_id: int = Depends(current_user)):
             "name": m.get("name", m["id"]),
             "is_free": m.get("is_free", False),
             "context_length": m.get("context_length", 0),
+            "via": m.get("via"),
         }
         for m in models
     ]
@@ -36,7 +37,7 @@ def get_model(user_id: int = Depends(current_user)):
 @router.post("/model")
 def set_model(req: SetModelRequest, user_id: int = Depends(current_user)):
     # Validate the model id exists in the catalog (best-effort, allow free text to be future-proof).
-    catalog = {m["id"] for m in fetch_all_models(force=False)}
+    catalog = {m["id"] for m in fetch_all_models(force=False, user_id=user_id)}
     if req.model_id and catalog and req.model_id not in catalog:
         # Allow but warn — user may have a model not in the cache yet.
         pass

@@ -3,7 +3,7 @@ import { api } from "../lib/api";
 import { useUserStore } from "../stores/useUserStore";
 import { useToastStore } from "../stores/useToastStore";
 
-type Model = { id: string; name: string; is_free: boolean; context_length: number };
+type Model = { id: string; name: string; is_free: boolean; context_length: number; via?: string };
 
 export function ModelPickerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [models, setModels] = useState<Model[]>([]);
@@ -72,9 +72,11 @@ export function ModelPickerModal({ open, onClose }: { open: boolean; onClose: ()
                   <div className="text-[15px] text-tg-text font-medium truncate">{m.name}</div>
                   <div className="text-[11px] text-tg-hint truncate">{m.id}</div>
                 </div>
-                {m.is_free && (
+                {m.via ? (
+                  <span className="text-[10px] text-tg-link font-semibold uppercase ml-2">via {m.via}</span>
+                ) : m.is_free ? (
                   <span className="text-[10px] text-tg-link font-semibold uppercase ml-2">Free</span>
-                )}
+                ) : null}
               </button>
             ))}
         </div>

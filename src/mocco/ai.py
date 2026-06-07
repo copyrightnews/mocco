@@ -135,51 +135,72 @@ def can_use_paid_model(user_id: Optional[int], model_id: str) -> bool:
     return False
 
 
-def fetch_all_models(force: bool = False) -> List[dict]:
+def fetch_all_models(force: bool = False, user_id: Optional[int] = None) -> List[dict]:
     """Fetch all text->text chat models from OpenRouter. Cached for MODELS_CACHE_TTL seconds.
     Returns a list of dicts: {"id", "name", "context_length", "is_free", "pricing"}.
+    When user_id is provided, also appends direct-provider models (Groq, Anthropic,
+    Google, Together) for providers the user has a key for, prefixed with the
+    provider's `direct_route_prefix` so `get_client_for_chat` routes them directly.
     """
     global ALL_MODELS_CACHE, ALL_MODELS_CACHE_TIME
     now = time.time()
     if not force and ALL_MODELS_CACHE and (now - ALL_MODELS_CACHE_TIME) < MODELS_CACHE_TTL:
-        return ALL_MODELS_CACHE
-    try:
-        r = requests.get(f"{OPENROUTER_BASE_URL}/models", timeout=15)
-        r.raise_for_status()
-        data = r.json().get("data", [])
+        out = list(ALL_MODELS_CACHE)
+    else:
         out = []
-        for m in data:
-            mid = m.get("id", "")
-            arch = m.get("architecture", {}) or {}
-            if arch.get("modality") != "text->text":
+        try:
+            r = requests.get(f"{OPENROUTER_BASE_URL}/models", timeout=15)
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            for m in data:
+                mid = m.get("id", "")
+                arch = m.get("architecture", {}) or {}
+                if arch.get("modality") != "text->text":
+                    continue
+                pricing = m.get("pricing", {}) or {}
+                is_free = (
+                    mid.endswith(":free")
+                    or pricing.get("prompt", "0") in ("0", "0.0", 0, "0.0", None)
+                    and pricing.get("completion", "0") in ("0", "0.0", 0, "0.0", None)
+                )
+                out.append({
+                    "id": mid,
+                    "name": m.get("name", mid),
+                    "context_length": m.get("context_length", 0),
+                    "is_free": bool(is_free),
+                    "pricing": pricing,
+                })
+            out.sort(key=lambda x: (not x["is_free"], x["name"].lower()))
+            ALL_MODELS_CACHE = out
+            ALL_MODELS_CACHE_TIME = now
+            logger.info(f"Loaded {len(out)} text->text models from OpenRouter ({sum(1 for m in out if m['is_free'])} free)")
+        except Exception as e:
+            logger.warning(f"fetch_all_models failed: {e}")
+            if ALL_MODELS_CACHE:
+                out = list(ALL_MODELS_CACHE)
+            else:
+                out = [
+                    {"id": "minimax/minimax-m2.5:free", "name": "Minimax M2.5 (free)", "context_length": 196608, "is_free": True, "pricing": {}},
+                    {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Meta: Llama 3.3 70B (free)", "context_length": 131072, "is_free": True, "pricing": {}},
+                    {"id": "qwen/qwen3-next-80b-a3b-instruct:free", "name": "Qwen 3 Next 80B (free)", "context_length": 262144, "is_free": True, "pricing": {}},
+                ]
+    if user_id is not None:
+        for provider, p in PROVIDERS.items():
+            prefix = p.get("direct_route_prefix")
+            if not prefix:
                 continue
-            pricing = m.get("pricing", {}) or {}
-            is_free = (
-                mid.endswith(":free")
-                or pricing.get("prompt", "0") in ("0", "0.0", 0, "0.0", None)
-                and pricing.get("completion", "0") in ("0", "0.0", 0, "0.0", None)
-            )
-            out.append({
-                "id": mid,
-                "name": m.get("name", mid),
-                "context_length": m.get("context_length", 0),
-                "is_free": bool(is_free),
-                "pricing": pricing,
-            })
-        out.sort(key=lambda x: (not x["is_free"], x["name"].lower()))
-        ALL_MODELS_CACHE = out
-        ALL_MODELS_CACHE_TIME = now
-        logger.info(f"Loaded {len(out)} text->text models from OpenRouter ({sum(1 for m in out if m['is_free'])} free)")
-        return out
-    except Exception as e:
-        logger.warning(f"fetch_all_models failed: {e}")
-        if ALL_MODELS_CACHE:
-            return ALL_MODELS_CACHE
-        return [
-            {"id": "minimax/minimax-m2.5:free", "name": "Minimax M2.5 (free)", "context_length": 196608, "is_free": True, "pricing": {}},
-            {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Meta: Llama 3.3 70B (free)", "context_length": 131072, "is_free": True, "pricing": {}},
-            {"id": "qwen/qwen3-next-80b-a3b-instruct:free", "name": "Qwen 3 Next 80B (free)", "context_length": 262144, "is_free": True, "pricing": {}},
-        ]
+            if not _get_user_provider_key(user_id, provider):
+                continue
+            for model_name in p.get("known_models", []):
+                out.append({
+                    "id": f"{prefix}{model_name}",
+                    "name": model_name,
+                    "context_length": 0,
+                    "is_free": False,
+                    "pricing": {},
+                    "via": provider,
+                })
+    return out
 
 
 def create_chat_completion(messages: List[dict], system_prompt: Optional[str] = None, user_id: Optional[int] = None) -> Optional[str]:

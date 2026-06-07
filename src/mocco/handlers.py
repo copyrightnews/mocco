@@ -882,8 +882,14 @@ def _short_model_label(m: dict) -> str:
 
 
 def _format_model_label(m: dict) -> str:
-    """Format a model for the picker: 'Model Name: free' or 'Model Name: paid'."""
+    """Format a model for the picker:
+    - OpenRouter free: 'Model Name: free'
+    - OpenRouter paid: 'Model Name: paid'
+    - Direct provider: 'Model Name via <Provider>'
+    """
     base = _short_model_label(m)
+    if m.get("via"):
+        return f"{base} via {m['via']}"
     suffix = ": free" if m.get("is_free") else ": paid"
     return base + suffix
 
@@ -1147,7 +1153,7 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    models = await asyncio.to_thread(fetch_all_models)
+    models = await asyncio.to_thread(fetch_all_models, False, user_id)
     if not models:
         await safe_reply(
             msg,
@@ -1273,7 +1279,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "open":
-        models = await asyncio.to_thread(fetch_all_models)
+        models = await asyncio.to_thread(fetch_all_models, False, user_id)
         current = get_chat_model(user_id) or resolve_model()
         has_key = user_has_key(user_id)
         connected = user_connected_providers(user_id)
@@ -1306,7 +1312,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "refresh":
-        models = await asyncio.to_thread(fetch_all_models, True)
+        models = await asyncio.to_thread(fetch_all_models, True, user_id)
         current = get_chat_model(user_id) or resolve_model()
         has_key = user_has_key(user_id)
         await safe_edit(query, reply_markup=_build_models_keyboard(models, 0, current, has_key))
@@ -1324,7 +1330,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "page":
         page = int(data[2]) if len(data) > 2 else 0
-        models = await asyncio.to_thread(fetch_all_models)
+        models = await asyncio.to_thread(fetch_all_models, False, user_id)
         current = get_chat_model(user_id) or resolve_model()
         has_key = user_has_key(user_id)
         if not models:
@@ -1340,7 +1346,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         # Guard: paid models require the user's own key for the matching provider,
         # otherwise the bot's account would be billed for this user's chats.
-        models = await asyncio.to_thread(fetch_all_models)
+        models = await asyncio.to_thread(fetch_all_models, False, user_id)
         model_info = next((m for m in models if m["id"] == model_id), None)
         if model_info and not model_info["is_free"] and not can_use_paid_model(user_id, model_id):
             await query.answer("Paid model — connect a matching key first", show_alert=True)
