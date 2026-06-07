@@ -419,18 +419,31 @@ async def process_message(update, context, msg, business_connection_id=None):
 
     logger.info(f"Msg from {user_id} (chat {chat_id}): {user_msg[:120]}")
 
+    thinking_msg = None
     try:
-        kwargs = {"chat_id": chat_id, "action": ChatAction.TYPING}
+        kw = {"chat_id": chat_id, "action": ChatAction.TYPING}
         if business_connection_id:
-            kwargs["business_connection_id"] = business_connection_id
-        await context.bot.send_chat_action(**kwargs)
-    except TelegramError as e:
-        logger.debug(f"send_chat_action failed: {e}")
+            kw["business_connection_id"] = business_connection_id
+        await context.bot.send_chat_action(**kw)
+    except TelegramError:
+        pass
+
+    try:
+        if business_connection_id:
+            thinking_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text="\u2728 *Thinking...*",
+                parse_mode="Markdown",
+                business_connection_id=business_connection_id,
+            )
+        else:
+            thinking_msg = await msg.reply_text("\u2728 *Thinking...*", parse_mode="Markdown")
+    except TelegramError:
+        pass
 
     try:
         reply, error_kind, error_msg = await asyncio.to_thread(get_ai_reply, user_id, user_msg)
         if reply is None:
-            # LLM API failed; show an actionable error per failure type, do NOT save to history.
             if error_kind == "rate_limited":
                 text = (
                     "This model is rate-limited right now.\n\n"
@@ -462,40 +475,75 @@ async def process_message(update, context, msg, business_connection_id=None):
                     "This is likely a temporary issue — please try again in a few seconds."
                 )
             logger.info(f"AI failure for user {user_id} (model={resolve_model(user_id)}): {error_kind} — {error_msg}")
-            await safe_reply(
-                msg, text,
-                business_connection_id=business_connection_id,
-                bot=context.bot,
-            )
+            if thinking_msg:
+                try:
+                    await thinking_msg.edit_text(text, parse_mode="Markdown")
+                except TelegramError:
+                    await safe_reply(
+                        msg, text,
+                        business_connection_id=business_connection_id,
+                        bot=context.bot,
+                    )
+            else:
+                await safe_reply(
+                    msg, text,
+                    business_connection_id=business_connection_id,
+                    bot=context.bot,
+                )
             return
 
         save_message(user_id, "user", user_msg)
         save_message(user_id, "assistant", reply)
-        await safe_reply(
-            msg, reply,
-            business_connection_id=business_connection_id,
-            bot=context.bot,
-        )
+        if thinking_msg:
+            try:
+                if len(reply) > 4096:
+                    raise ValueError("too long for edit")
+                await thinking_msg.edit_text(reply, parse_mode="Markdown")
+            except (BadRequest, ValueError):
+                try:
+                    await thinking_msg.delete()
+                except TelegramError:
+                    pass
+                await safe_reply(
+                    msg, reply,
+                    business_connection_id=business_connection_id,
+                    bot=context.bot,
+                )
+        else:
+            await safe_reply(
+                msg, reply,
+                business_connection_id=business_connection_id,
+                bot=context.bot,
+            )
     except NoAPIKeyError as e:
         logger.warning(f"No API key available for user {user_id}: {e}")
-        await safe_reply(
-            msg,
+        text = (
             "*No API key is configured for chatting.*\n\n"
             "The bot owner hasn't set a fallback OpenRouter key, and you don't "
             "have one connected either. Run `/connect openrouter` (or `/connect openai`) "
-            "to add your own — it stays encrypted and only you can use it.",
-            parse_mode="Markdown",
-            business_connection_id=business_connection_id,
-            bot=context.bot,
+            "to add your own — it stays encrypted and only you can use it."
         )
+        if thinking_msg:
+            try:
+                await thinking_msg.edit_text(text, parse_mode="Markdown")
+            except TelegramError:
+                await safe_reply(msg, text, parse_mode="Markdown",
+                                 business_connection_id=business_connection_id, bot=context.bot)
+        else:
+            await safe_reply(msg, text, parse_mode="Markdown",
+                             business_connection_id=business_connection_id, bot=context.bot)
     except Exception as e:
         logger.exception(f"process_message error: {e}")
-        await safe_reply(
-            msg,
-            "Something went wrong on my end.\nPlease try sending your message again.",
-            business_connection_id=business_connection_id,
-            bot=context.bot,
-        )
+        text = "Something went wrong on my end.\nPlease try sending your message again."
+        if thinking_msg:
+            try:
+                await thinking_msg.edit_text(text)
+            except TelegramError:
+                await safe_reply(msg, text,
+                                 business_connection_id=business_connection_id, bot=context.bot)
+        else:
+            await safe_reply(msg, text,
+                             business_connection_id=business_connection_id, bot=context.bot)
 
 
 async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
