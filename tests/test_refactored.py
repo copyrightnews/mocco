@@ -367,8 +367,8 @@ async def test_process_message_document(monkeypatch):
     def mock_get_ai_reply(user_id, prompt):
         assert "detect errors and bugs in this codes" in prompt
         assert "def buggy_function():" in prompt
-        return "Here is the bug analysis."
-    
+        return "Here is the bug analysis.", None, None
+
     monkeypatch.setattr(handlers, "get_ai_reply", mock_get_ai_reply)
 
     # Mock safe_reply to capture the reply

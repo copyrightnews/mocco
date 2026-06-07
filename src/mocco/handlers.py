@@ -428,13 +428,42 @@ async def process_message(update, context, msg, business_connection_id=None):
         logger.debug(f"send_chat_action failed: {e}")
 
     try:
-        reply = await asyncio.to_thread(get_ai_reply, user_id, user_msg)
+        reply, error_kind, error_msg = await asyncio.to_thread(get_ai_reply, user_id, user_msg)
         if reply is None:
-            # LLM API failed; reply with error but do NOT save to history database
+            # LLM API failed; show an actionable error per failure type, do NOT save to history.
+            if error_kind == "rate_limited":
+                text = (
+                    "This model is rate-limited right now.\n\n"
+                    "Quick fixes:\n"
+                    "• /connect <provider> to use your own key (recommended)\n"
+                    "• /model to pick a different model\n"
+                    "• Wait a minute and retry (free-tier limits reset fast)"
+                )
+            elif error_kind == "auth":
+                text = (
+                    "Your API key was rejected by the provider.\n\n"
+                    "Re-run /connect <provider> with a fresh key."
+                )
+            elif error_kind == "timeout":
+                text = (
+                    "The provider didn't respond in time.\n\n"
+                    "Try /model to pick a faster model, or retry in a moment."
+                )
+            elif error_kind == "server":
+                text = "The provider is having an outage. Please try again in a minute."
+            elif error_kind == "bad_request":
+                text = (
+                    "That model rejected the request. It may not support this conversation.\n\n"
+                    "Try /model to pick a different one."
+                )
+            else:
+                text = (
+                    "I couldn't generate a response right now.\n"
+                    "This is likely a temporary issue — please try again in a few seconds."
+                )
+            logger.info(f"AI failure for user {user_id} (model={resolve_model(user_id)}): {error_kind} — {error_msg}")
             await safe_reply(
-                msg,
-                "I couldn't generate a response right now.\n"
-                "This is likely a temporary issue — please try again in a few seconds.",
+                msg, text,
                 business_connection_id=business_connection_id,
                 bot=context.bot,
             )

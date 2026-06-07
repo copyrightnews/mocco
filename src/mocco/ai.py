@@ -4,6 +4,15 @@ from typing import List, Tuple, Optional
 from datetime import datetime, timezone
 import requests
 from openai import OpenAI
+from openai import (
+    RateLimitError,
+    AuthenticationError,
+    PermissionDeniedError,
+    APIConnectionError,
+    APITimeoutError,
+    BadRequestError,
+    InternalServerError,
+)
 from .config import load_config, OPENROUTER_BASE_URL
 from .db import get_custom_prompt, get_chat_model, get_user_api_key, get_history
 from .crypto import decrypt_api_key
@@ -77,11 +86,11 @@ def get_client_for_chat(user_id: Optional[int], model_id: str) -> Tuple[OpenAI, 
             prov = PROVIDERS[direct]
             resolved = model_id[len(prov["model_strip_prefix"]):] if prov["model_strip_prefix"] else model_id
             logger.info(f"Routing {model_id} via {direct} direct → {resolved}")
-            return OpenAI(api_key=direct_key, base_url=prov["base_url"]), resolved
+            return _new_client(direct_key, prov["base_url"]), resolved
 
     or_key = _get_user_provider_key(user_id, "openrouter")
     if or_key:
-        return OpenAI(api_key=or_key, base_url=OPENROUTER_BASE_URL), model_id
+        return _new_client(or_key, OPENROUTER_BASE_URL), model_id
 
     cfg = load_config()
     if not cfg.OPENROUTER_API_KEY:
@@ -89,7 +98,15 @@ def get_client_for_chat(user_id: Optional[int], model_id: str) -> Tuple[OpenAI, 
             "No OpenRouter key is available. Run /connect to add your own, "
             "or ask the bot owner to set OPENROUTER_API_KEY as a fallback."
         )
-    return OpenAI(api_key=cfg.OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL), model_id
+    return _new_client(cfg.OPENROUTER_API_KEY, OPENROUTER_BASE_URL), model_id
+
+
+def _new_client(api_key: str, base_url: str) -> OpenAI:
+    """OpenAI client with auto-retry DISABLED — fail fast and let the handler
+    surface the error to the user instead of silently waiting 30+ seconds
+    on rate limits.
+    """
+    return OpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=45.0)
 
 
 def resolve_model(user_id: Optional[int] = None) -> str:
@@ -318,7 +335,18 @@ def get_system_prompt(user_id: Optional[int] = None) -> str:
     return base
 
 
-def get_ai_reply(user_id: int, user_msg: str) -> Optional[str]:
+def get_ai_reply(user_id: int, user_msg: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Run a chat completion. Returns (reply, error_kind, error_msg).
+
+    error_kind is one of:
+      - "rate_limited"  : 429 — provider is throttling this key/model
+      - "auth"          : 401/403 — key rejected
+      - "timeout"       : request timed out
+      - "server"        : 5xx from provider
+      - "bad_request"   : 400 — model/params invalid
+      - "other"         : anything else
+    error_msg is the raw exception text (for logging).
+    """
     history = get_history(user_id)
     messages = [{"role": r["role"], "content": r["content"]} for r in history]
 
@@ -342,7 +370,25 @@ def get_ai_reply(user_id: int, user_msg: str) -> Optional[str]:
             max_tokens=800,
             temperature=0.65,
         )
-        return response.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip(), None, None
+    except RateLimitError as e:
+        logger.warning(f"Rate limit on {model_id}: {e}")
+        return None, "rate_limited", str(e)
+    except (AuthenticationError, PermissionDeniedError) as e:
+        logger.warning(f"Auth failure on {model_id}: {e}")
+        return None, "auth", str(e)
+    except APITimeoutError as e:
+        logger.warning(f"Timeout on {model_id}: {e}")
+        return None, "timeout", str(e)
+    except APIConnectionError as e:
+        logger.warning(f"Connection error on {model_id}: {e}")
+        return None, "timeout", str(e)
+    except BadRequestError as e:
+        logger.warning(f"Bad request on {model_id}: {e}")
+        return None, "bad_request", str(e)
+    except InternalServerError as e:
+        logger.warning(f"Server error on {model_id}: {e}")
+        return None, "server", str(e)
     except Exception as e:
         logger.error(f"chat completion error ({model_id}): {e}")
-        return None
+        return None, "other", str(e)
