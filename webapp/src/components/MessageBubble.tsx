@@ -1,8 +1,10 @@
 import { Message } from "../stores/useChatStore";
+import { ThinkingAnimation } from "./ThinkingAnimation";
 
 export function MessageBubble({ m, onRetry, tone = "light" }: { m: Message; onRetry?: () => void; tone?: "light" | "dark" }) {
   const isUser = m.role === "user";
   const dark = tone === "dark";
+  const thinking = !isUser && m.streaming && !m.content;
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} my-1.5 px-3`}>
       <div
@@ -14,7 +16,7 @@ export function MessageBubble({ m, onRetry, tone = "light" }: { m: Message; onRe
             : "bg-tg-secondary-bg text-tg-text rounded-bl-md shadow-pill"
         }`}
       >
-        {m.content || (m.streaming ? "…" : "")}
+        {thinking ? <ThinkingAnimation /> : m.content}
         {m.error && (
           <button onClick={onRetry} className="ml-2 underline text-tg-link">
             retry
