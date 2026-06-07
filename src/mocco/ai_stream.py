@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import AsyncIterator, Optional
 
-from .ai import get_client_for_chat, resolve_model
+from .ai import get_client_for_chat, resolve_model, needs_search, web_search
 from .db import save_message, increment_daily_token_usage
 
 
@@ -30,6 +30,18 @@ async def stream_ai_reply(
         model_id = resolve_model(user_id)
         client, real_model = get_client_for_chat(user_id, model_id)
         payload = messages[:]
+        # Web search: if the last user message triggers it, augment with live results.
+        for i in range(len(payload) - 1, -1, -1):
+            if payload[i].get("role") == "user":
+                text = payload[i].get("content", "")
+                if text and needs_search(text):
+                    search_text, _ = web_search(text)
+                    payload[i]["content"] = (
+                        f"{text}\n\n"
+                        f"[Current web search results]:\n{search_text}\n\n"
+                        "Use the search results above to give an accurate, up-to-date answer."
+                    )
+                break
         if system_prompt:
             payload = [{"role": "system", "content": system_prompt}] + payload
         stream = await client.chat.completions.create(
