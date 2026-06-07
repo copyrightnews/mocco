@@ -420,15 +420,7 @@ async def process_message(update, context, msg, business_connection_id=None):
     logger.info(f"Msg from {user_id} (chat {chat_id}): {user_msg[:120]}")
 
     thinking_msg = None
-    thinking_dots_stop = False
-    try:
-        kw = {"chat_id": chat_id, "action": ChatAction.TYPING}
-        if business_connection_id:
-            kw["business_connection_id"] = business_connection_id
-        await context.bot.send_chat_action(**kw)
-    except TelegramError:
-        pass
-
+    thinking_alive = True
     try:
         if business_connection_id:
             thinking_msg = await context.bot.send_message(
@@ -442,36 +434,19 @@ async def process_message(update, context, msg, business_connection_id=None):
     except TelegramError:
         pass
 
-    async def _animate_dots():
-        nonlocal thinking_dots_stop
-        frames = [
-            "\u2728 *Thinking*",
-            "\u2728 *Thinking.*",
-            "\u2728 *Thinking..*",
-            "\u2728 *Thinking...*",
-            "\ud83d\udcad *Thinking...*",
-            "\ud83e\udd14 *Thinking...*",
-            "\ud83e\udd14 *Thinking..*",
-            "\ud83e\udd14 *Thinking.*",
-            "\ud83d\udcad *Thinking*",
-            "\ud83e\udd14 *Thinking*",
-        ]
-        i = 0
-        while not thinking_dots_stop:
-            await asyncio.sleep(0.55)
-            if thinking_dots_stop:
-                break
+    async def _keep_typing():
+        """Keep the native Telegram typing indicator alive while AI processes."""
+        while thinking_alive:
             try:
-                if thinking_msg:
-                    await thinking_msg.edit_text(
-                        frames[i % len(frames)],
-                        parse_mode="Markdown",
-                    )
-                i += 1
+                kw = {"chat_id": chat_id, "action": ChatAction.TYPING}
+                if business_connection_id:
+                    kw["business_connection_id"] = business_connection_id
+                await context.bot.send_chat_action(**kw)
             except TelegramError:
-                break
+                pass
+            await asyncio.sleep(4)
 
-    anim_task = asyncio.create_task(_animate_dots())
+    typing_task = asyncio.create_task(_keep_typing())
 
     try:
         reply, error_kind, error_msg = await asyncio.to_thread(get_ai_reply, user_id, user_msg)
@@ -507,8 +482,8 @@ async def process_message(update, context, msg, business_connection_id=None):
                     "This is likely a temporary issue — please try again in a few seconds."
                 )
             logger.info(f"AI failure for user {user_id} (model={resolve_model(user_id)}): {error_kind} — {error_msg}")
-            thinking_dots_stop = True
-            anim_task.cancel()
+            thinking_alive = False
+            typing_task.cancel()
             if thinking_msg:
                 try:
                     await thinking_msg.edit_text(text, parse_mode="Markdown")
@@ -528,8 +503,8 @@ async def process_message(update, context, msg, business_connection_id=None):
 
         save_message(user_id, "user", user_msg)
         save_message(user_id, "assistant", reply)
-        thinking_dots_stop = True
-        anim_task.cancel()
+        thinking_alive = False
+        typing_task.cancel()
         if thinking_msg:
             try:
                 if len(reply) > 4096:
@@ -552,8 +527,8 @@ async def process_message(update, context, msg, business_connection_id=None):
                 bot=context.bot,
             )
     except NoAPIKeyError as e:
-        thinking_dots_stop = True
-        anim_task.cancel()
+        thinking_alive = False
+        typing_task.cancel()
         logger.warning(f"No API key available for user {user_id}: {e}")
         text = (
             "*No API key is configured for chatting.*\n\n"
@@ -571,8 +546,8 @@ async def process_message(update, context, msg, business_connection_id=None):
             await safe_reply(msg, text, parse_mode="Markdown",
                              business_connection_id=business_connection_id, bot=context.bot)
     except Exception as e:
-        thinking_dots_stop = True
-        anim_task.cancel()
+        thinking_alive = False
+        typing_task.cancel()
         logger.exception(f"process_message error: {e}")
         text = "Something went wrong on my end.\nPlease try sending your message again."
         if thinking_msg:
