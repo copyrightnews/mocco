@@ -21,6 +21,9 @@ export function ChatPanel() {
   const markError = useChatStore((s) => s.markError);
   const clear = useChatStore((s) => s.clear);
   const telegramId = useUserStore((s) => s.telegramId);
+  const connectedProviders = useUserStore((s) => s.connectedProviders);
+  const quota = useUserStore((s) => s.quota);
+  const setMe = useUserStore((s) => s.setMe);
   const pushToast = useToastStore((s) => s.push);
 
   const [resetOpen, setResetOpen] = useState(false);
@@ -67,6 +70,11 @@ export function ChatPanel() {
             firstDelta = false;
           }
           appendDelta(frame.delta);
+        } else if (frame.kind === "usage") {
+          const cur = useUserStore.getState().quota;
+          if (cur.limit > 0) {
+            setMe({ quota: { ...cur, used: cur.used + frame.totalTokens } });
+          }
         } else if (frame.kind === "done") {
           markComplete();
         } else if (frame.kind === "error") {
@@ -77,7 +85,12 @@ export function ChatPanel() {
     } catch (e) {
       markError();
       const err = e as ApiError;
-      if (err.status === 400 && err.code === "no_api_key") {
+      if (err.status === 429 && err.code === "quota_exceeded") {
+        pushToast({
+          type: "warning",
+          text: "Daily limit reached. Add your own key in Profile to keep chatting.",
+        });
+      } else if (err.status === 400 && err.code === "no_api_key") {
         pushToast({ type: "warning", text: "Connect a key to chat." });
       } else {
         pushToast({ type: "error", text: err.message || "Stream failed." });
@@ -99,6 +112,9 @@ export function ChatPanel() {
   }
 
   const empty = messages.length === 0;
+  const onFallback = connectedProviders.length === 0 && quota.limit > 0;
+  const quotaExhausted = onFallback && quota.used >= quota.limit;
+  const quotaPct = quota.limit > 0 ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0;
 
   return (
     <div className="relative flex flex-col h-full mocco-agent-wallpaper overflow-hidden">
@@ -121,6 +137,34 @@ export function ChatPanel() {
       </div>
 
       <div className="fixed inset-x-0 bottom-16 z-30 pt-4 bg-gradient-to-t from-[#050a1c] via-[#050a1c]/85 to-transparent">
+        {onFallback && (
+          <div className="px-3 pb-2">
+            <div
+              className={
+                "mocco-glass-pill flex items-center gap-2.5 px-3.5 py-2 text-[12.5px] text-white/90 " +
+                (quotaExhausted ? "ring-1 ring-red-400/40" : "")
+              }
+            >
+              <span
+                className={
+                  "w-1.5 h-1.5 rounded-full shrink-0 " +
+                  (quotaExhausted ? "bg-red-400" : "bg-white/80")
+                }
+                aria-hidden="true"
+              />
+              <span className="font-medium">Mocco's key</span>
+              <span className="text-white/60">
+                {quota.used.toLocaleString()} / {quota.limit.toLocaleString()} tokens
+              </span>
+              <div className="ml-1 flex-1 h-1 rounded-full bg-white/15 overflow-hidden">
+                <div
+                  className={"h-full " + (quotaExhausted ? "bg-red-400/80" : "bg-white/70")}
+                  style={{ width: `${quotaPct}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
         {messages.length > 0 && (
           <div className="overflow-x-auto">
             <div className="flex gap-2 px-4 pb-2 w-max">

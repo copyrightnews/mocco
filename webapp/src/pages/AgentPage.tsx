@@ -5,7 +5,14 @@ import { api } from "../lib/api";
 import { useUserStore } from "../stores/useUserStore";
 import { useToastStore } from "../stores/useToastStore";
 
-type MeResponse = { id: number; model: string; language: string; persona: string; connected_providers: string[] };
+type MeResponse = {
+  id: number;
+  model: string;
+  language: string;
+  persona: string;
+  connected_providers: string[];
+  quota: { used: number; limit: number; resets_at: string };
+};
 
 export function AgentPage() {
   const setMe = useUserStore((s) => s.setMe);
@@ -21,6 +28,11 @@ export function AgentPage() {
           language: me.language || "en",
           persona: me.persona,
           connectedProviders: me.connected_providers,
+          quota: {
+            used: me.quota.used,
+            limit: me.quota.limit,
+            resetsAt: me.quota.resets_at,
+          },
         });
       } catch (e) {
         pushToast({ type: "error", text: (e as Error).message });

@@ -21,6 +21,7 @@ class Config:
     BOT_ID: int = 0
     CHAT_MODEL: str = DEFAULT_CHAT_MODEL
     LOG_LEVEL: str = "INFO"
+    DAILY_FALLBACK_QUOTA: int = 5000
 
 
 # Vars that must be set or the bot cannot start at all.
@@ -35,6 +36,7 @@ OPTIONAL_VARS = (
     "BOT_ID",
     "CHAT_MODEL",
     "LOG_LEVEL",
+    "DAILY_FALLBACK_QUOTA",
 )
 
 
@@ -66,6 +68,12 @@ def load_config() -> Config:
     except ValueError:
         bot = 0
 
+    quota_raw = os.environ.get("DAILY_FALLBACK_QUOTA", "5000")
+    try:
+        quota = int(quota_raw) if quota_raw else 5000
+    except ValueError:
+        quota = 5000
+
     return Config(
         TELEGRAM_TOKEN=os.environ["TELEGRAM_TOKEN"],
         DATABASE_URL=os.environ["DATABASE_URL"],
@@ -76,6 +84,7 @@ def load_config() -> Config:
         BOT_ID=bot,
         CHAT_MODEL=os.environ.get("CHAT_MODEL", DEFAULT_CHAT_MODEL),
         LOG_LEVEL=os.environ.get("LOG_LEVEL", "INFO"),
+        DAILY_FALLBACK_QUOTA=quota,
     )
 
 

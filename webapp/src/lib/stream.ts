@@ -5,6 +5,7 @@ const BASE = import.meta.env.VITE_API_BASE_URL as string;
 
 export type ChatFrame =
   | { kind: "delta"; delta: string }
+  | { kind: "usage"; totalTokens: number }
   | { kind: "done" }
   | { kind: "error"; code: string; message: string };
 
@@ -39,7 +40,9 @@ export async function* streamChat(
       try {
         const json = JSON.parse(line.slice(6));
         if (typeof json.delta === "string") yield { kind: "delta", delta: json.delta };
-        else if (json.done) yield { kind: "done" };
+        else if (json.usage && typeof json.usage.total_tokens === "number") {
+          yield { kind: "usage", totalTokens: json.usage.total_tokens };
+        } else if (json.done) yield { kind: "done" };
         else if (json.error) yield { kind: "error", code: json.error.code, message: json.error.message };
       } catch {
         // ignore malformed frame

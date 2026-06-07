@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import Optional, List, Tuple, Dict, Any
+from datetime import datetime, timezone, timedelta
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from .config import load_config
@@ -437,3 +438,63 @@ def update_user_profile(user_id: int, **fields) -> None:
                 params,
             )
             conn.commit()
+
+
+def _next_reset_utc() -> datetime:
+    now = datetime.now(timezone.utc)
+    return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def get_daily_token_usage(user_id: int) -> Dict[str, Any]:
+    """Return {'used', 'limit', 'resets_at'} for the user's Mocco-fallback quota.
+
+    Lazily resets the counter when the stored reset timestamp is in the past.
+    Returns a fresh usage snapshot on each call.
+    """
+    limit = int(getattr(get_config(), "DAILY_FALLBACK_QUOTA", 0) or 0)
+    fallback_resets_at = _next_reset_utc()
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT daily_tokens_used, daily_tokens_reset_at FROM users WHERE user_id = %s",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return {"used": 0, "limit": limit, "resets_at": fallback_resets_at}
+                used = int(row["daily_tokens_used"] or 0)
+                resets_at = row["daily_tokens_reset_at"]
+                if not isinstance(resets_at, datetime):
+                    resets_at = datetime.now(timezone.utc)
+                if resets_at.tzinfo is None:
+                    resets_at = resets_at.replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                if now >= resets_at:
+                    used = 0
+                    next_reset = _next_reset_utc()
+                    cur.execute(
+                        "UPDATE users SET daily_tokens_used = 0, daily_tokens_reset_at = %s WHERE user_id = %s",
+                        (next_reset, user_id),
+                    )
+                    conn.commit()
+                    return {"used": used, "limit": limit, "resets_at": next_reset}
+                return {"used": used, "limit": limit, "resets_at": resets_at}
+    except Exception as e:
+        logger.error(f"get_daily_token_usage failed: {e}")
+        return {"used": 0, "limit": limit, "resets_at": fallback_resets_at}
+
+
+def increment_daily_token_usage(user_id: int, tokens: int) -> None:
+    if tokens <= 0:
+        return
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET daily_tokens_used = daily_tokens_used + %s WHERE user_id = %s",
+                    (int(tokens), user_id),
+                )
+                conn.commit()
+    except Exception as e:
+        logger.error(f"increment_daily_token_usage failed: {e}")
