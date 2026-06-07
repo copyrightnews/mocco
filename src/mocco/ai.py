@@ -36,6 +36,48 @@ ALL_MODELS_CACHE: List[dict] = []
 ALL_MODELS_CACHE_TIME: float = 0.0
 MODELS_CACHE_TTL = 3600
 
+# Curated 2026 picks shown first in the OpenRouter catalog picker. Anything
+# not listed here follows alphabetically after. Order = display order.
+FEATURED_FREE_IDS = [
+    "openai/gpt-oss-120b:free",
+    "openai/gpt-oss-20b:free",
+    "qwen/qwen3-coder:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "z-ai/glm-4.5-air:free",
+    "liquid/lfm-2.5-1.2b-instruct:free",
+    "liquid/lfm-2.5-1.2b-thinking:free",
+    "poolside/laguna-m.1:free",
+    "poolside/laguna-xs.2:free",
+    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+    "openrouter/owl-alpha",
+]
+FEATURED_PAID_IDS = [
+    "openai/gpt-5",
+    "openai/gpt-5-mini",
+    "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-opus-4.5",
+    "google/gemini-2.5-pro",
+    "google/gemini-2.5-flash",
+    "x-ai/grok-4",
+    "meta-llama/llama-4-maverick",
+    "meta-llama/llama-4-scout",
+    "deepseek/deepseek-chat-v3.1",
+    "qwen/qwen3-235b-a22b-instruct",
+    "mistralai/mistral-large-2",
+]
+
+# Free model ids that are old / stale — drop from the picker. The list is
+# checked case-sensitively against the OpenRouter model id.
+HIDDEN_FREE_IDS = {
+    "meta-llama/llama-3.2-3b-instruct:free",   # 2024-09, 3B — superseded
+    "nousresearch/hermes-3-llama-3.1-405b:free",  # 2024-08 — superseded
+}
+
 
 def _get_user_provider_key(user_id: Optional[int], provider: str) -> Optional[str]:
     """Return the decrypted API key the user stored for this provider, or None."""
@@ -198,6 +240,7 @@ def fetch_all_models(force: bool = False, user_id: Optional[int] = None) -> List
     if not force and ALL_MODELS_CACHE and (now - ALL_MODELS_CACHE_TIME) < MODELS_CACHE_TTL:
         return list(ALL_MODELS_CACHE)
     out: List[dict] = []
+    by_id: dict = {}
     try:
         r = requests.get(f"{OPENROUTER_BASE_URL}/models", timeout=15)
         r.raise_for_status()
@@ -213,26 +256,42 @@ def fetch_all_models(force: bool = False, user_id: Optional[int] = None) -> List
                 or pricing.get("prompt", "0") in ("0", "0.0", 0, "0.0", None)
                 and pricing.get("completion", "0") in ("0", "0.0", 0, "0.0", None)
             )
-            out.append({
+            if is_free and mid in HIDDEN_FREE_IDS:
+                continue
+            entry = {
                 "id": mid,
                 "name": m.get("name", mid),
                 "context_length": m.get("context_length", 0),
                 "is_free": bool(is_free),
                 "pricing": pricing,
-            })
-        out.sort(key=lambda x: (not x["is_free"], x["name"].lower()))
+            }
+            by_id[mid] = entry
+        # Featured first (free then paid), then everything else (free first, then paid),
+        # alphabetical within each group.
+        featured = [by_id[m] for m in FEATURED_FREE_IDS + FEATURED_PAID_IDS if m in by_id]
+        featured_ids = {m["id"] for m in featured}
+        rest = [m for m in by_id.values() if m["id"] not in featured_ids]
+        rest.sort(key=lambda x: (not x["is_free"], x["name"].lower()))
+        out = featured + rest
         ALL_MODELS_CACHE = out
         ALL_MODELS_CACHE_TIME = now
-        logger.info(f"Loaded {len(out)} text->text models from OpenRouter ({sum(1 for m in out if m['is_free'])} free)")
+        logger.info(f"Loaded {len(out)} text->text models from OpenRouter ({sum(1 for m in out if m['is_free'])} free, {len(featured)} featured)")
         return out
     except Exception as e:
         logger.warning(f"fetch_all_models failed: {e}")
         if ALL_MODELS_CACHE:
             return list(ALL_MODELS_CACHE)
+        # Fallback to current featured free models only — these are confirmed
+        # to be live on OpenRouter as of Jan 2026.
         return [
-            {"id": "minimax/minimax-m2.5:free", "name": "Minimax M2.5 (free)", "context_length": 196608, "is_free": True, "pricing": {}},
-            {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Meta: Llama 3.3 70B (free)", "context_length": 131072, "is_free": True, "pricing": {}},
-            {"id": "qwen/qwen3-next-80b-a3b-instruct:free", "name": "Qwen 3 Next 80B (free)", "context_length": 262144, "is_free": True, "pricing": {}},
+            {"id": "openai/gpt-oss-120b:free", "name": "OpenAI: gpt-oss-120b (free)", "context_length": 131072, "is_free": True, "pricing": {}},
+            {"id": "qwen/qwen3-coder:free", "name": "Qwen: Qwen3 Coder 480B A35B (free)", "context_length": 1048576, "is_free": True, "pricing": {}},
+            {"id": "qwen/qwen3-next-80b-a3b-instruct:free", "name": "Qwen: Qwen3 Next 80B A3B Instruct (free)", "context_length": 262144, "is_free": True, "pricing": {}},
+            {"id": "nvidia/nemotron-3-ultra-550b-a55b:free", "name": "NVIDIA: Nemotron 3 Ultra (free)", "context_length": 1000000, "is_free": True, "pricing": {}},
+            {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Meta: Llama 3.3 70B Instruct (free)", "context_length": 131072, "is_free": True, "pricing": {}},
+            {"id": "google/gemini-2.5-pro", "name": "Google: Gemini 2.5 Pro", "context_length": 1000000, "is_free": False, "pricing": {}},
+            {"id": "anthropic/claude-sonnet-4.5", "name": "Anthropic: Claude Sonnet 4.5", "context_length": 1000000, "is_free": False, "pricing": {}},
+            {"id": "openai/gpt-5", "name": "OpenAI: GPT-5", "context_length": 1000000, "is_free": False, "pricing": {}},
         ]
 
 
