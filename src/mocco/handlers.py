@@ -224,6 +224,29 @@ async def safe_reply(msg, text, parse_mode=None, business_connection_id=None,
             logger.error(f"Telegram error in safe_reply chunk {i}: {e}")
 
 
+async def safe_edit(query, *, text=None, reply_markup=None, **kwargs):
+    """Wrapper around query.edit_message_text / edit_message_reply_markup.
+
+    Telegram rejects an edit whose new content equals the current one with
+    'BadRequest: Message is not modified'. We swallow that specific error so
+    callback handlers (refresh, re-open picker, same-page nav) no-op cleanly.
+    """
+    try:
+        if text is not None:
+            return await query.edit_message_text(text, reply_markup=reply_markup, **kwargs)
+        if reply_markup is not None:
+            return await query.edit_message_reply_markup(reply_markup=reply_markup, **kwargs)
+        return None
+    except BadRequest as e:
+        if "Message is not modified" in str(e):
+            try:
+                await query.answer()
+            except TelegramError:
+                pass
+            return None
+        raise
+
+
 async def process_message(update, context, msg, business_connection_id=None):
     if not msg:
         return
@@ -839,7 +862,7 @@ def _build_provider_keyboard(action: str, only_connected_for: Optional[int] = No
     for name, p in PROVIDERS.items():
         if connected is not None and name not in connected:
             continue
-        label = f"{p['emoji']} {p['label']}"
+        label = p['label']
         pair.append(InlineKeyboardButton(label, callback_data=f"key:{action}:{name}"))
         if len(pair) == 2:
             rows.append(pair)
@@ -1064,7 +1087,7 @@ async def callback_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "cancel":
         PENDING_KEY.pop(user_id, None)
-        await query.edit_message_text("Cancelled. No changes made.")
+        await safe_edit(query, text="Cancelled. No changes made.")
         return
 
     if len(parts) < 3 or not is_known_provider(parts[2]):
@@ -1078,12 +1101,13 @@ async def callback_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "disconnect":
         if delete_user_api_key(user_id, provider):
             p = PROVIDERS[provider]
-            await query.edit_message_text(
-                f"*Disconnected {p['label']}.*\nYour stored key has been removed.",
+            await safe_edit(
+                query,
+                text=f"*Disconnected {p['label']}.*\nYour stored key has been removed.",
                 parse_mode="Markdown",
             )
         else:
-            await query.edit_message_text("That provider wasn't connected.", parse_mode="Markdown")
+            await safe_edit(query, text="That provider wasn't connected.", parse_mode="Markdown")
         return
 
 
@@ -1218,10 +1242,13 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "connect":
-        await query.edit_message_text(
-            "*Connect a provider*\n\n"
-            "Pick which API key you want to add.\n"
-            "Your key is verified live, then encrypted and stored.",
+        await safe_edit(
+            query,
+            text=(
+                "*Connect a provider*\n\n"
+                "Pick which API key you want to add.\n"
+                "Your key is verified live, then encrypted and stored."
+            ),
             parse_mode="Markdown",
             reply_markup=_build_provider_keyboard("connect"),
         )
@@ -1231,13 +1258,15 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         connected = user_connected_providers(user_id)
         if not connected:
             await query.answer("No keys connected", show_alert=False)
-            await query.edit_message_text(
-                "You don't have any provider keys connected.",
+            await safe_edit(
+                query,
+                text="You don't have any provider keys connected.",
                 parse_mode="Markdown",
             )
             return
-        await query.edit_message_text(
-            "*Disconnect a provider*\n\nPick which key to remove:",
+        await safe_edit(
+            query,
+            text="*Disconnect a provider*\n\nPick which key to remove:",
             parse_mode="Markdown",
             reply_markup=_build_provider_keyboard("disconnect", only_connected_for=user_id),
         )
@@ -1249,8 +1278,9 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_key = user_has_key(user_id)
         connected = user_connected_providers(user_id)
         if not models:
-            await query.edit_message_text(
-                "*Could not load the model list right now.*\nPlease try again in a moment.",
+            await safe_edit(
+                query,
+                text="*Could not load the model list right now.*\nPlease try again in a moment.",
                 parse_mode="Markdown",
             )
             return
@@ -1267,8 +1297,9 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{key_status}\n\n"
             f"Models labeled `free` work with the bot's key. Models labeled `paid` need *your own* key."
         )
-        await query.edit_message_text(
-            body,
+        await safe_edit(
+            query,
+            text=body,
             parse_mode="Markdown",
             reply_markup=_build_models_keyboard(models, 0, current, has_key),
         )
@@ -1278,14 +1309,15 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         models = await asyncio.to_thread(fetch_all_models, True)
         current = get_chat_model(user_id) or resolve_model()
         has_key = user_has_key(user_id)
-        await query.edit_message_reply_markup(_build_models_keyboard(models, 0, current, has_key))
+        await safe_edit(query, reply_markup=_build_models_keyboard(models, 0, current, has_key))
         return
 
     if action == "reset":
         set_chat_model(user_id, None)
         default = load_config().CHAT_MODEL
-        await query.edit_message_text(
-            f"*Model reset to default.*\n\nYou're now using: `{default}`",
+        await safe_edit(
+            query,
+            text=f"*Model reset to default.*\n\nYou're now using: `{default}`",
             parse_mode="Markdown",
         )
         return
@@ -1299,7 +1331,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         max_page = max(0, (len(models) - 1) // MODELS_PAGE_SIZE)
         page = max(0, min(page, max_page))
-        await query.edit_message_reply_markup(_build_models_keyboard(models, page, current, has_key))
+        await safe_edit(query, reply_markup=_build_models_keyboard(models, page, current, has_key))
         return
 
     if action == "pick":
@@ -1321,8 +1353,9 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         set_chat_model(user_id, model_id)
-        await query.edit_message_text(
-            f"*Model set!*\n\nYou're now using: `{model_id}`\n\n"
+        await safe_edit(
+            query,
+            text=f"*Model set!*\n\nYou're now using: `{model_id}`\n\n"
             f"_Tip: `/model reset` to go back to default, `/keys` to manage your providers._",
             parse_mode="Markdown",
         )
@@ -1431,8 +1464,39 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def on_telegram_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Catch-all for unhandled exceptions in any handler.
+
+    Logs the full traceback (replaces the 'No error handlers are registered'
+    stderr spam) and, when the access gate allows it, sends the user a brief
+    'something went wrong' reply so they aren't left staring at a silent bot.
+    """
+    logger.exception(f"Unhandled exception in update: {context.error}")
+
+    cfg = load_config()
+    upd = update if isinstance(update, Update) else None
+    user = upd.effective_user if upd else None
+    if cfg.OWNER_ID != 0 and (not user or user.id != cfg.OWNER_ID):
+        return
+
+    if upd and getattr(upd, "effective_message", None):
+        try:
+            await upd.effective_message.reply_text(
+                "*Something went wrong on my end.*\nPlease try again in a moment.",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+    elif upd and getattr(upd, "callback_query", None):
+        try:
+            await upd.callback_query.answer("Something went wrong.", show_alert=False)
+        except Exception:
+            pass
+
+
 def register_handlers(app):
     """Register all Mocco handlers to the telegram application instance."""
+    app.add_error_handler(on_telegram_error)
     app.add_handler(CommandHandler("start",       cmd_start))
     app.add_handler(CommandHandler("help",        cmd_help))
     app.add_handler(CommandHandler("menu",        cmd_menu))
