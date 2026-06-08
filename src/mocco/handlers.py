@@ -247,6 +247,99 @@ async def safe_edit(query, *, text=None, reply_markup=None, **kwargs):
         raise
 
 
+async def process_business_assistant(update, context, msg, business_connection_id):
+    """Handle messages from Chat Automation (personal AI assistant mode).
+
+    When the bot is connected via Settings > Chat Automation, people who 
+    message the user's Telegram account get an AI response here.
+    """
+    if not msg or not msg.text:
+        return
+    user = msg.from_user
+    if not user or user.is_bot:
+        return
+    chat_type = msg.chat.type
+    if chat_type == "private":
+        if user.id != msg.chat.id:
+            return
+    elif chat_type in ["group", "supergroup"]:
+        bot_user = await context.bot.get_me()
+        bot_username = bot_user.username
+        is_mentioned = False
+        msg_text = msg.text or msg.caption or ""
+        if msg_text and f"@{bot_username}" in msg_text:
+            is_mentioned = True
+        is_reply_to_bot = False
+        if msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.id == context.bot.id:
+            is_reply_to_bot = True
+        if not is_mentioned and not is_reply_to_bot:
+            return
+
+    cfg = load_config()
+    owner_id = cfg.OWNER_ID
+    logger.info(f"Assistant msg from {user.id} ({user.first_name}): {msg.text[:120]}")
+
+    thinking_msg = None
+    try:
+        thinking_msg = await context.bot.send_message(
+            chat_id=msg.chat_id,
+            text="\u2728 *Thinking*",
+            parse_mode="Markdown",
+            business_connection_id=business_connection_id,
+        )
+    except TelegramError:
+        pass
+
+    try:
+        reply, error_kind, error_msg = await asyncio.to_thread(
+            get_ai_reply, owner_id, msg.text, assistant_mode=True
+        )
+        if reply is None:
+            text = "Sorry, I couldn't process that. Please try again in a moment."
+            if thinking_msg:
+                try:
+                    await thinking_msg.edit_text(text)
+                except TelegramError:
+                    await context.bot.send_message(
+                        chat_id=msg.chat_id, text=text,
+                        business_connection_id=business_connection_id,
+                    )
+            else:
+                await context.bot.send_message(
+                    chat_id=msg.chat_id, text=text,
+                    business_connection_id=business_connection_id,
+                )
+            return
+
+        if thinking_msg:
+            try:
+                if len(reply) > 4096:
+                    raise ValueError("too long")
+                await thinking_msg.edit_text(reply, parse_mode="Markdown")
+            except (BadRequest, ValueError):
+                try:
+                    await thinking_msg.delete()
+                except TelegramError:
+                    pass
+                await context.bot.send_message(
+                    chat_id=msg.chat_id, text=reply, parse_mode="Markdown",
+                    business_connection_id=business_connection_id,
+                )
+        else:
+            await context.bot.send_message(
+                chat_id=msg.chat_id, text=reply, parse_mode="Markdown",
+                business_connection_id=business_connection_id,
+            )
+    except Exception as e:
+        logger.exception(f"Business assistant error: {e}")
+        text = "Something went wrong. Please try again."
+        if thinking_msg:
+            try:
+                await thinking_msg.edit_text(text)
+            except TelegramError:
+                pass
+
+
 async def process_message(update, context, msg, business_connection_id=None):
     if not msg:
         return
@@ -256,6 +349,13 @@ async def process_message(update, context, msg, business_connection_id=None):
 
     user = msg.from_user
     if not user or user.is_bot:
+        return
+
+    # ── Business assistant mode ────────────────────────────────────────────────
+    # If this is a business connection message, route to the assistant handler
+    # which bypasses the owner check and uses assistant personality.
+    if business_connection_id:
+        await process_business_assistant(update, context, msg, business_connection_id)
         return
 
     cfg = load_config()
@@ -273,44 +373,20 @@ async def process_message(update, context, msg, business_connection_id=None):
             pass
         return
 
-    # ── Telegram Business Connection Loop Protection ──────────────────────────────
-    if business_connection_id:
-        chat_type = msg.chat.type
-        if chat_type == "private":
-            # msg.chat.id is customer's user ID. We only reply if customer sent the message.
-            # If user.id != msg.chat.id, it is outgoing from the business owner (or the bot).
-            if user.id != msg.chat.id:
-                logger.debug(f"Ignoring outgoing business message from user {user.id}")
-                return
-        elif chat_type in ["group", "supergroup"]:
-            # In group chats under business connections, only reply if mentioned or replied to
-            bot_user = await context.bot.get_me()
-            bot_username = bot_user.username
-            is_mentioned = False
-            msg_text = msg.text or msg.caption or ""
-            if msg_text and f"@{bot_username}" in msg_text:
-                is_mentioned = True
-            is_reply_to_bot = False
-            if msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.id == context.bot.id:
-                is_reply_to_bot = True
-            if not is_mentioned and not is_reply_to_bot:
-                return
-
     # ── Standard Group/Supergroup Spam Guard ──────────────────────────────────────
-    else:
-        chat_type = msg.chat.type
-        if chat_type in ["group", "supergroup"]:
-            bot_user = await context.bot.get_me()
-            bot_username = bot_user.username
-            is_mentioned = False
-            msg_text = msg.text or msg.caption or ""
-            if msg_text and f"@{bot_username}" in msg_text:
-                is_mentioned = True
-            is_reply_to_bot = False
-            if msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.id == context.bot.id:
-                is_reply_to_bot = True
-            if not is_mentioned and not is_reply_to_bot:
-                return
+    chat_type = msg.chat.type
+    if chat_type in ["group", "supergroup"]:
+        bot_user = await context.bot.get_me()
+        bot_username = bot_user.username
+        is_mentioned = False
+        msg_text = msg.text or msg.caption or ""
+        if msg_text and f"@{bot_username}" in msg_text:
+            is_mentioned = True
+        is_reply_to_bot = False
+        if msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.id == context.bot.id:
+            is_reply_to_bot = True
+        if not is_mentioned and not is_reply_to_bot:
+            return
 
     user_id = user.id
     chat_id = msg.chat_id
@@ -564,7 +640,7 @@ async def process_message(update, context, msg, business_connection_id=None):
 async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.business_message
     if msg:
-        await process_message(update, context, msg, msg.business_connection_id)
+        await process_business_assistant(update, context, msg, msg.business_connection_id)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):

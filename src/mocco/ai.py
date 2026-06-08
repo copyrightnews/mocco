@@ -14,7 +14,7 @@ from openai import (
     InternalServerError,
 )
 from .config import load_config, OPENROUTER_BASE_URL
-from .db import get_custom_prompt, get_chat_model, get_user_api_key, get_history
+from .db import get_custom_prompt, get_chat_model, get_user_api_key, get_history, get_bot_config
 from .crypto import decrypt_api_key
 from .providers import PROVIDERS, direct_route_for_model
 
@@ -443,8 +443,46 @@ def get_system_prompt(user_id: Optional[int] = None) -> str:
     return base
 
 
-def get_ai_reply(user_id: int, user_msg: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def get_assistant_system_prompt() -> str:
+    """System prompt for Chat Automation / personal AI assistant mode.
+
+    Used when the bot is connected as the user's personal assistant via
+    Settings > Chat Automation. The bot replies on behalf of the user
+    to people who message their account.
+    """
+    owner_name = get_bot_config("owner_name") or "the account owner"
+    today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
+    return (
+        f"You are an AI personal assistant for {owner_name} on Telegram.\n"
+        f"Today's date is {today}.\n\n"
+        "## YOUR ROLE:\n"
+        "- You are helping people who are messaging {owner_name}'s Telegram account.\n"
+        "- You reply ON BEHALF OF {owner_name} — be helpful, polite, and professional.\n"
+        "- You represent {owner_name}, so match their tone and style.\n"
+        "- If someone asks a question, answer it thoroughly on their behalf.\n"
+        "- If someone needs help, provide it.\n"
+        "- If a question is personal or you don't know how {owner_name} would respond, "
+        "say you'll pass the message along.\n"
+        "- Never say you are a bot or AI assistant unless directly asked.\n"
+        "- Keep responses natural and conversational.\n\n"
+        "## THINKING STYLE — MAXIMUM DEPTH & DETAIL:\n"
+        "- Explain everything thoroughly with full context and reasoning.\n"
+        "- Cover background, details, examples, and practical applications.\n"
+        "- Write as much as needed — be comprehensive.\n\n"
+        "## CRITICAL RULES:\n"
+        "- NEVER use hashtags (#).\n"
+        "- NEVER use dividers like --- or ===.\n"
+        "- Keep formatting clean and minimal.\n"
+        "- For code, use proper code blocks with language specified.\n"
+        "- Be warm and helpful — you are representing a real person.\n"
+    )
+
+
+def get_ai_reply(user_id: int, user_msg: str, assistant_mode: bool = False) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Run a chat completion. Returns (reply, error_kind, error_msg).
+
+    When assistant_mode=True: uses the business-assistant system prompt,
+    no chat history (each business chat is a separate conversation).
 
     error_kind is one of:
       - "rate_limited"  : 429 — provider is throttling this key/model
@@ -455,8 +493,11 @@ def get_ai_reply(user_id: int, user_msg: str) -> Tuple[Optional[str], Optional[s
       - "other"         : anything else
     error_msg is the raw exception text (for logging).
     """
-    history = get_history(user_id)
-    messages = [{"role": r["role"], "content": r["content"]} for r in history]
+    if assistant_mode:
+        messages = []
+    else:
+        history = get_history(user_id)
+        messages = [{"role": r["role"], "content": r["content"]} for r in history]
 
     if needs_search(user_msg):
         search_text, _ = web_search(user_msg)
@@ -473,9 +514,10 @@ def get_ai_reply(user_id: int, user_msg: str) -> Tuple[Optional[str], Optional[s
     model_id = resolve_model(user_id)
     try:
         client, resolved_model = get_client_for_chat(user_id, model_id)
+        prompt = get_assistant_system_prompt() if assistant_mode else get_system_prompt(user_id)
         response = client.chat.completions.create(
             model=resolved_model,
-            messages=[{"role": "system", "content": get_system_prompt(user_id)}] + messages,
+            messages=[{"role": "system", "content": prompt}] + messages,
             max_tokens=8192,
             temperature=0.75,
         )
