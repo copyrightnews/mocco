@@ -139,7 +139,6 @@ def test_blacklist_blocks_self(monkeypatch):
     monkeypatch.setenv("TELEGRAM_TOKEN", "x")
     monkeypatch.setenv("OPENROUTER_API_KEY", "x")
     monkeypatch.setenv("SERPER_API_KEY", "x")
-    monkeypatch.setenv("TOGETHER_API_KEY", "x")
     monkeypatch.setenv("DATABASE_URL", "postgresql://x:x@x:5432/x")
     monkeypatch.setenv("OWNER_ID", "777")
     monkeypatch.setenv("BOT_ID", "0")
@@ -225,9 +224,8 @@ def test_ai_search_keywords():
 def test_ai_system_prompt_language():
     """Verify system prompt contains language adaptability guidelines."""
     prompt = ai.get_system_prompt()
-    assert "Language Adaptability" in prompt
-    assert "Bengali (Bangla)" in prompt
-    assert "বাংলা" in prompt
+    assert "LANGUAGE — CRITICAL: MATCH USER'S LANGUAGE PERFECTLY" in prompt
+    assert "Bengali, Spanish, Arabic" in prompt
 
 
 def test_get_client_for_chat_routes_openai_direct(monkeypatch):
@@ -235,7 +233,6 @@ def test_get_client_for_chat_routes_openai_direct(monkeypatch):
     monkeypatch.setenv("TELEGRAM_TOKEN", "x")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-bot-key")
     monkeypatch.setenv("SERPER_API_KEY", "x")
-    monkeypatch.setenv("TOGETHER_API_KEY", "x")
     monkeypatch.setenv("DATABASE_URL", "postgresql://x:x@x:5432/x")
     monkeypatch.setenv("ENCRYPTION_KEY", "wPK0bI5wQz0Op9-cE_pP6yV3aQ5cT7uY9zE1aR4eB6w=")
 
@@ -259,7 +256,6 @@ def test_get_client_for_chat_falls_back_to_openrouter(monkeypatch):
     monkeypatch.setenv("TELEGRAM_TOKEN", "x")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-bot-key")
     monkeypatch.setenv("SERPER_API_KEY", "x")
-    monkeypatch.setenv("TOGETHER_API_KEY", "x")
     monkeypatch.setenv("DATABASE_URL", "postgresql://x:x@x:5432/x")
     monkeypatch.setenv("ENCRYPTION_KEY", "wPK0bI5wQz0Op9-cE_pP6yV3aQ5cT7uY9zE1aR4eB6w=")
     monkeypatch.setattr(ai, "get_user_api_key", lambda uid, p: None)
@@ -274,7 +270,6 @@ def test_can_use_paid_model_smart_gating(monkeypatch):
     monkeypatch.setenv("TELEGRAM_TOKEN", "x")
     monkeypatch.setenv("OPENROUTER_API_KEY", "x")
     monkeypatch.setenv("SERPER_API_KEY", "x")
-    monkeypatch.setenv("TOGETHER_API_KEY", "x")
     monkeypatch.setenv("DATABASE_URL", "postgresql://x:x@x:5432/x")
     monkeypatch.setenv("ENCRYPTION_KEY", "wPK0bI5wQz0Op9-cE_pP6yV3aQ5cT7uY9zE1aR4eB6w=")
 
@@ -304,41 +299,6 @@ def test_can_use_paid_model_smart_gating(monkeypatch):
     assert ai.can_use_paid_model(None, "openai/gpt-4o") is False
 
 
-def test_image_base64_decoding_logic(monkeypatch):
-    """Verify image generation logic handles base64 payload correctly."""
-    # Mock requests.post to return a fake base64 image
-    class FakeResponse:
-        status_code = 200
-        text = "Fake payload text"
-        def raise_for_status(self):
-            pass
-        def json(self):
-            # A valid 1x1 transparent PNG in base64
-            fake_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
-            return {
-                "data": [
-                    {
-                        "b64_json": fake_b64
-                    }
-                ]
-            }
-
-    monkeypatch.setattr("requests.post", lambda *args, **kwargs: FakeResponse())
-    
-    # Mock config
-    monkeypatch.setenv("TELEGRAM_TOKEN", "fake_token")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "fake_token")
-    monkeypatch.setenv("SERPER_API_KEY", "fake_token")
-    monkeypatch.setenv("TOGETHER_API_KEY", "fake_token")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@host:5432/db")
-
-    res = ai.generate_image("a beautiful test scene")
-    assert res is not None
-    img_bytes, is_url = res
-    assert is_url is False
-    assert isinstance(img_bytes, bytes)
-    assert img_bytes.startswith(b"\x89PNG\r\n\x1a\n") # Correct PNG header!
-
 
 @pytest.mark.anyio
 async def test_process_message_document(monkeypatch):
@@ -347,7 +307,6 @@ async def test_process_message_document(monkeypatch):
     monkeypatch.setenv("TELEGRAM_TOKEN", "fake_token")
     monkeypatch.setenv("OPENROUTER_API_KEY", "fake_token")
     monkeypatch.setenv("SERPER_API_KEY", "fake_token")
-    monkeypatch.setenv("TOGETHER_API_KEY", "fake_token")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@host:5432/db")
 
     # Mock database helper functions to avoid database connection
@@ -364,7 +323,7 @@ async def test_process_message_document(monkeypatch):
     monkeypatch.setattr(handlers, "save_message", mock_save_message)
 
     # Mock get_ai_reply
-    def mock_get_ai_reply(user_id, prompt):
+    def mock_get_ai_reply(user_id, prompt, assistant_mode=False):  # signature matches ai.get_ai_reply
         assert "detect errors and bugs in this codes" in prompt
         assert "def buggy_function():" in prompt
         return "Here is the bug analysis.", None, None

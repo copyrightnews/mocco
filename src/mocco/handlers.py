@@ -1585,7 +1585,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @owner_only
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    if not msg or not is_owner(update):
+    if not msg:
         return
     users, msgs, blk = get_stats()
     active = users - blk
@@ -1606,8 +1606,6 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @owner_only
 async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    if not msg or not is_owner(update):
-        return
     if not context.args:
         await safe_reply(msg, "Usage: /blacklist <user_id>")
         return
@@ -1633,8 +1631,6 @@ async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @owner_only
 async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    if not msg or not is_owner(update):
-        return
     if not context.args:
         await safe_reply(msg, "Usage: /unblacklist <user_id>")
         return
@@ -1652,8 +1648,6 @@ async def cmd_unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @owner_only
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    if not msg or not is_owner(update):
-        return
     text = " ".join(context.args).strip()
     if not text:
         await safe_reply(msg, "Usage: /broadcast <message>")

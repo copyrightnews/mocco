@@ -406,50 +406,61 @@ def user_connected_providers(user_id: int) -> List[str]:
 
 
 def get_user_api_keys(user_id: int) -> List[Dict[str, Any]]:
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT provider, created_at FROM user_api_keys WHERE user_id = %s ORDER BY created_at",
-                (user_id,),
-            )
-            return [{"provider": r["provider"], "created_at": r["created_at"]} for r in cur.fetchall()]
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT provider, created_at FROM user_api_keys WHERE user_id = %s ORDER BY created_at",
+                    (user_id,),
+                )
+                return [{"provider": r["provider"], "created_at": r["created_at"]} for r in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"get_user_api_keys failed: {e}")
+        return []
 
 
 def get_user_profile(user_id: int) -> Optional[Dict[str, Any]]:
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT gender, age, location, occupation, interests, timezone, language "
-                "FROM users WHERE user_id = %s",
-                (user_id,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return None
-            return {
-                "gender": row["gender"],
-                "age": row["age"],
-                "location": row["location"],
-                "occupation": row["occupation"],
-                "interests": row["interests"],
-                "timezone": row["timezone"],
-                "language": row["language"],
-            }
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT gender, age, location, occupation, interests, timezone, language "
+                    "FROM users WHERE user_id = %s",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                return {
+                    "gender": row["gender"],
+                    "age": row["age"],
+                    "location": row["location"],
+                    "occupation": row["occupation"],
+                    "interests": row["interests"],
+                    "timezone": row["timezone"],
+                    "language": row["language"],
+                }
+    except Exception as e:
+        logger.error(f"get_user_profile failed: {e}")
+        return None
 
 
 def update_user_profile(user_id: int, **fields) -> None:
-    cols = {k: v for k, v in fields.items() if v is not None}
-    if not cols:
-        return
-    set_clause = ", ".join(f"{col} = %s" for col in cols)
-    params = list(cols.values()) + [user_id]
-    with db_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"UPDATE users SET {set_clause} WHERE user_id = %s",
-                params,
-            )
-            conn.commit()
+    try:
+        cols = {k: v for k, v in fields.items() if v is not None}
+        if not cols:
+            return
+        set_clause = ", ".join(f"{col} = %s" for col in cols)
+        params = list(cols.values()) + [user_id]
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE users SET {set_clause} WHERE user_id = %s",
+                    params,
+                )
+                conn.commit()
+    except Exception as e:
+        logger.error(f"update_user_profile failed: {e}")
 
 
 def _next_reset_utc() -> datetime:
