@@ -738,12 +738,26 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
         )
         return
+    search_msg = None
     try:
-        await context.bot.send_chat_action(chat_id=msg.chat_id, action=ChatAction.TYPING)
+        search_msg = await msg.reply_text("\u2728 *Searching...*", parse_mode="Markdown")
     except TelegramError:
         pass
     search_text, _ = await asyncio.to_thread(web_search, query)
-    await safe_reply(msg, f"*Results for:* `{query}`\n\n{search_text}", parse_mode="Markdown")
+    reply = f"*Results for:* `{query}`\n\n{search_text}"
+    if search_msg:
+        try:
+            if len(reply) > 4096:
+                raise ValueError("too long")
+            await search_msg.edit_text(reply, parse_mode="Markdown")
+        except (BadRequest, ValueError):
+            try:
+                await search_msg.delete()
+            except TelegramError:
+                pass
+            await safe_reply(msg, reply, parse_mode="Markdown")
+    else:
+        await safe_reply(msg, reply, parse_mode="Markdown")
 
 
 @owner_only

@@ -30,6 +30,9 @@ SEARCH_KEYWORDS = [
     "weather", "who won", "what happened", "right now", "live",
     "stock", "exchange rate", "update", "recently", "this week",
     "this month", "2024", "2025", "2026", "happening", "released", "launched",
+    "google", "search", "who is", "what is", "where is", "how to",
+    "define", "meaning", "population", "president", "ceo",
+    "twitter", "trending", "forecast", "prediction", "upcoming",
 ]
 
 ALL_MODELS_CACHE: List[dict] = []
@@ -310,7 +313,7 @@ def create_chat_completion(messages: List[dict], system_prompt: Optional[str] = 
         resp = client.chat.completions.create(
             model=resolved_model,
             messages=payload,
-            max_tokens=800,
+            max_tokens=2048,
             temperature=0.65,
         )
         return resp.choices[0].message.content.strip()
@@ -338,8 +341,8 @@ def web_search(query: str) -> Tuple[str, list]:
         r = requests.post(
             "https://google.serper.dev/search",
             headers={"X-API-KEY": cfg.SERPER_API_KEY, "Content-Type": "application/json"},
-            json={"q": query, "num": 5},
-            timeout=10,
+            json={"q": query, "num": 8},
+            timeout=12,
         )
         r.raise_for_status()
         data = r.json()
@@ -348,23 +351,23 @@ def web_search(query: str) -> Tuple[str, list]:
         if "answerBox" in data:
             ab = data["answerBox"]
             answer = ab.get("answer") or ab.get("snippet") or ""
+            title = ab.get("title", "")
             if answer:
-                lines.append(f"Direct Answer: {answer}")
-                raw.append({"title": "Answer Box", "snippet": answer})
-        organic = data.get("organic", [])[:4]
+                source = f" ({title})" if title else ""
+                lines.append(f"Answer{source}: {answer}")
+                raw.append({"title": title or "Answer Box", "snippet": answer})
+        organic = data.get("organic", [])[:6]
         if organic:
-            if lines:
-                lines.append("")
-            lines.append("Top Results:")
             for i, item in enumerate(organic, 1):
                 title = item.get("title", "").strip()
                 snippet = item.get("snippet", "").strip()
                 link = item.get("link", "")
                 if title and snippet:
-                    lines.append(f"{i}. {title}\n   {snippet}")
+                    lines.append(f"{i}. {title}")
+                    lines.append(f"   {snippet}")
                     raw.append({"title": title, "snippet": snippet, "link": link})
         if not lines:
-            return "No results found for your query.", []
+            return f"No results found for: {query}", []
         return "\n".join(lines), raw
     except requests.exceptions.Timeout:
         return "Search timed out. Please try again.", []
@@ -383,6 +386,16 @@ def get_system_prompt(user_id: Optional[int] = None) -> str:
     base = (
         f"You are Mocco, an advanced AI assistant — smart, precise, and genuinely helpful.\n"
         f"Today's date is {today}.\n\n"
+        "## CRITICAL FORMATTING RULES:\n"
+        "- NEVER use hashtags (#) in your responses. Never.\n"
+        "- NEVER use markdown formatting inappropriately. No unnecessary bold, italics, or headers.\n"
+        "- Do NOT use markdown headers (like ## or ###) for short answers — they waste space.\n"
+        "- For simple answers, just write clean flowing text. No structure needed.\n"
+        "- For complex answers, use bullet points (-) or numbered lists (1.) sparingly.\n"
+        "- Use **bold** only for the single most important term, if at all.\n"
+        "- Use `code` only for actual code, file names, or commands.\n"
+        "- Keep formatting minimal — clean text reads best on mobile.\n"
+        "- Separate sections with a single blank line, never with dividers like --- or ===.\n\n"
         "## How you behave:\n"
         "- Think carefully before answering. Be accurate and honest.\n"
         "- If unsure about something, say so clearly instead of guessing.\n"
@@ -433,8 +446,9 @@ def get_ai_reply(user_id: int, user_msg: str) -> Tuple[Optional[str], Optional[s
         search_text, _ = web_search(user_msg)
         augmented = (
             f"{user_msg}\n\n"
-            f"[Current web search results]:\n{search_text}\n\n"
-            "Use the search results above to give an accurate, up-to-date answer."
+            f"Web search results for reference:\n{search_text}\n\n"
+            "Using the web search results above, answer the user's question accurately. "
+            "Cite relevant sources naturally. If results are insufficient, say so."
         )
         messages.append({"role": "user", "content": augmented})
     else:
@@ -446,7 +460,7 @@ def get_ai_reply(user_id: int, user_msg: str) -> Tuple[Optional[str], Optional[s
         response = client.chat.completions.create(
             model=resolved_model,
             messages=[{"role": "system", "content": get_system_prompt(user_id)}] + messages,
-            max_tokens=800,
+            max_tokens=2048,
             temperature=0.65,
         )
         return response.choices[0].message.content.strip(), None, None
