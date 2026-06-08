@@ -41,7 +41,7 @@ def _get_key() -> bytes:
             try:
                 Fernet(raw.encode("utf-8"))
             except Exception as exc:
-                raise ValueError(
+                raise EncryptionKeyMissing(
                     "ENCRYPTION_KEY env var is not a valid Fernet key. "
                     "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
                 ) from exc

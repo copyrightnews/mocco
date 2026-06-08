@@ -516,7 +516,7 @@ def get_assistant_system_prompt() -> str:
     )
 
 
-def get_ai_reply(user_id: int, user_msg: str, assistant_mode: bool = False) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def get_ai_reply(user_id: int, user_msg: str, assistant_mode: bool = False, search_query: str | None = None) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Run a chat completion. Returns (reply, error_kind, error_msg).
 
     When assistant_mode=True: uses the business-assistant system prompt,
@@ -537,7 +537,7 @@ def get_ai_reply(user_id: int, user_msg: str, assistant_mode: bool = False) -> T
         history = get_history(user_id)
         messages = [{"role": r["role"], "content": r["content"]} for r in history]
 
-    if needs_search(user_msg):
+    if needs_search(search_query or user_msg):
         search_text, _ = web_search(user_msg)
         augmented = (
             f"{user_msg}\n\n"
@@ -560,7 +560,8 @@ def get_ai_reply(user_id: int, user_msg: str, assistant_mode: bool = False) -> T
             max_tokens=tok,
             temperature=0.7 if assistant_mode else 0.75,
         )
-        return response.choices[0].message.content.strip(), None, None
+        content = response.choices[0].message.content or ""
+        return content.strip(), None, None
     except RateLimitError as e:
         logger.warning(f"Rate limit on {model_id}: {e}")
         return None, "rate_limited", str(e)

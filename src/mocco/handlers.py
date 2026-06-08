@@ -262,8 +262,11 @@ async def process_business_assistant(update, context, msg, business_connection_i
         if user.id != msg.chat.id:
             return
     elif chat_type in ["group", "supergroup"]:
-        bot_user = await context.bot.get_me()
-        bot_username = bot_user.username
+        try:
+            bot_user = await context.bot.get_me()
+            bot_username = bot_user.username
+        except TelegramError:
+            return
         is_mentioned = False
         msg_text = msg.text or msg.caption or ""
         if msg_text and f"@{bot_username}" in msg_text:
@@ -322,8 +325,9 @@ async def process_business_assistant(update, context, msg, business_connection_i
     if extra_context:
         enriched = f"{msg.text}\n\n[Context for you]:{extra_context}"
     try:
-        reply, error_kind, error_msg = await asyncio.to_thread(
-            get_ai_reply, owner_id, enriched, assistant_mode=True
+        reply, error_kind, error_msg = await asyncio.wait_for(
+            asyncio.to_thread(get_ai_reply, owner_id, enriched, assistant_mode=True, search_query=msg.text),
+            timeout=120.0,
         )
         if reply is None:
             text = "Sorry, I couldn't process that. Please try again in a moment."
@@ -407,8 +411,11 @@ async def process_message(update, context, msg, business_connection_id=None):
     # ── Standard Group/Supergroup Spam Guard ──────────────────────────────────────
     chat_type = msg.chat.type
     if chat_type in ["group", "supergroup"]:
-        bot_user = await context.bot.get_me()
-        bot_username = bot_user.username
+        try:
+            bot_user = await context.bot.get_me()
+            bot_username = bot_user.username
+        except TelegramError:
+            return
         is_mentioned = False
         msg_text = msg.text or msg.caption or ""
         if msg_text and f"@{bot_username}" in msg_text:
@@ -647,6 +654,18 @@ async def process_message(update, context, msg, business_connection_id=None):
                                  business_connection_id=business_connection_id, bot=context.bot)
         else:
             await safe_reply(msg, text, parse_mode="Markdown",
+                             business_connection_id=business_connection_id, bot=context.bot)
+    except asyncio.TimeoutError:
+        logger.warning(f"AI timed out after 120s for user {user_id}")
+        text = "The AI provider didn't respond in time.\nTry /model to pick a faster model, or retry."
+        if thinking_msg:
+            try:
+                await thinking_msg.edit_text(text)
+            except TelegramError:
+                await safe_reply(msg, text,
+                                 business_connection_id=business_connection_id, bot=context.bot)
+        else:
+            await safe_reply(msg, text,
                              business_connection_id=business_connection_id, bot=context.bot)
     except Exception as e:
         logger.exception(f"process_message error: {e}")
