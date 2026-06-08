@@ -5,7 +5,7 @@ import functools
 import tempfile
 from typing import List, Optional
 from datetime import datetime, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
     MessageHandler,
@@ -61,8 +61,6 @@ logger = logging.getLogger("mocco")
 
 BROADCAST_CHUNK = 25
 
-TMA_URL = os.environ.get("TMA_URL", "")  # e.g. https://mocco.vercel.app
-
 ACCESS_DENIED_TEXT = (
     "🔒 *Access denied.*\n"
     "This bot is private. If you think this is a mistake, contact the bot owner."
@@ -83,11 +81,7 @@ WELCOME_TEXT = (
     "• Search the live web for current info\n"
     "• Summarize articles, papers, or PDFs\n\n"
     "━━━━━━━━━━━━━━━━━━━━\n"
-    "*Open the app*\n"
-    "━━━━━━━━━━━━━━━━━━━━\n\n"
-    "For a richer experience, tap the *🚀 Open App* button below to launch the Mocco Mini App.\n\n"
-    "━━━━━━━━━━━━━━━━━━━━\n"
-    "Just type your question or use /help to see all commands."
+    "Just type your question or check /help to see all commands."
 )
 
 HELP_TEXT = (
@@ -794,12 +788,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     ensure_user(msg.from_user.id, msg.from_user.username, msg.from_user.first_name)
     clear_history(msg.from_user.id)
-    kb = None
-    if TMA_URL:
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url=TMA_URL))]
-        ])
-    await msg.reply_text(WELCOME_TEXT, parse_mode="Markdown", reply_markup=kb)
+    await msg.reply_text(WELCOME_TEXT, parse_mode="Markdown")
 
 
 @owner_only
