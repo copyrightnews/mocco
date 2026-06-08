@@ -11,6 +11,7 @@ from telegram.ext import (
     MessageHandler,
     CommandHandler,
     CallbackQueryHandler,
+    ChatMemberHandler,
     filters,
     ContextTypes,
 )
@@ -29,6 +30,10 @@ from .db import (
     set_chat_model,
     set_user_api_key,
     delete_user_api_key,
+    add_user_chat,
+    remove_user_chat,
+    get_user_chats,
+    get_user_chats_context,
 )
 from .ai import (
     get_ai_reply,
@@ -279,6 +284,35 @@ async def process_business_assistant(update, context, msg, business_connection_i
     owner_id = cfg.OWNER_ID
     logger.info(f"Assistant msg from {user.id} ({user.first_name}): {msg.text[:120]}")
 
+    # ── t.me link resolution ────────────────────────────────────────────────
+    import re as _re
+    tme_links = _re.findall(r"https?://t\.me/([a-zA-Z0-9_]+)", msg.text)
+    resolved_links = []
+    if tme_links:
+        for link_uname in tme_links:
+            try:
+                chat_info = await context.bot.get_chat(f"@{link_uname}")
+                title = chat_info.title or chat_info.effective_name or link_uname
+                ctype = chat_info.type
+                desc = chat_info.description or ""
+                member_count = ""
+                try:
+                    mc = await context.bot.get_chat_member_count(chat_info.id)
+                    member_count = f" ({mc} members)"
+                except Exception:
+                    pass
+                resolved_links.append(f"- t.me/{link_uname} → **{title}** ({ctype}{member_count}): {desc[:200]}")
+            except Exception:
+                resolved_links.append(f"- t.me/{link_uname} → (private or inaccessible)")
+
+    # ── Build context for the AI ────────────────────────────────────────────
+    extra_context = ""
+    chats_summary = get_user_chats_context(owner_id)
+    if chats_summary:
+        extra_context += f"\n{chats_summary}\n"
+    if resolved_links:
+        extra_context += "\nLinks shared in this message:\n" + "\n".join(resolved_links) + "\n"
+
     thinking_msg = None
     try:
         thinking_msg = await context.bot.send_message(
@@ -290,9 +324,12 @@ async def process_business_assistant(update, context, msg, business_connection_i
     except TelegramError:
         pass
 
+    enriched = msg.text
+    if extra_context:
+        enriched = f"{msg.text}\n\n[Context for you]:{extra_context}"
     try:
         reply, error_kind, error_msg = await asyncio.to_thread(
-            get_ai_reply, owner_id, msg.text, assistant_mode=True
+            get_ai_reply, owner_id, enriched, assistant_mode=True
         )
         if reply is None:
             text = "Sorry, I couldn't process that. Please try again in a moment."
@@ -1668,6 +1705,120 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@owner_only
+async def cmd_addchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Register a channel/group the user owns or admins for the assistant."""
+    msg = update.message
+    if not msg:
+        return
+    args = context.args or []
+    if not args:
+        await safe_reply(msg, "Usage: /addchat @channelusername or /addchat https://t.me/...",
+                         parse_mode="Markdown")
+        return
+    raw = " ".join(args).strip()
+    username = raw.replace("https://t.me/", "").replace("@", "").split("/")[0].split("?")[0]
+    if not username:
+        await safe_reply(msg, "Could not parse the chat link. Use @username or t.me/username.")
+        return
+    try:
+        chat = await context.bot.get_chat(f"@{username}")
+        cid = chat.id
+        title = chat.title or chat.effective_name or username
+        ctype = chat.type  # "channel", "group", "supergroup"
+        uname = chat.username or ""
+        administrator = False
+        try:
+            me = await context.bot.get_me()
+            member = await chat.get_member(me.id)
+            administrator = member.status in ("administrator", "creator")
+        except Exception:
+            pass
+        add_user_chat(msg.from_user.id, cid, title, ctype, uname, administrator)
+        role = "admin" if administrator else "member"
+        await safe_reply(
+            msg,
+            f"*Added:* {title} (@{uname}) — {ctype} ({role})",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.warning(f"addchat failed for {username}: {e}")
+        await safe_reply(
+            msg,
+            f"*Could not find* `{username}`.\n"
+            "Make sure the chat is public and the bot is a member.",
+            parse_mode="Markdown",
+        )
+
+
+@owner_only
+async def cmd_removechat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not msg:
+        return
+    args = context.args or []
+    if not args:
+        await safe_reply(msg, "Usage: /removechat @channelusername")
+        return
+    raw = " ".join(args).strip()
+    username = raw.replace("https://t.me/", "").replace("@", "").split("/")[0].split("?")[0]
+    chats = get_user_chats(msg.from_user.id)
+    for c in chats:
+        if c.get("chat_username", "").lower() == username.lower():
+            remove_user_chat(msg.from_user.id, c["chat_id"])
+            await safe_reply(msg, f"*Removed:* {c['chat_title']}", parse_mode="Markdown")
+            return
+    await safe_reply(msg, f"No registered chat found for `{username}`.", parse_mode="Markdown")
+
+
+@owner_only
+async def cmd_mychats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not msg:
+        return
+    chats = get_user_chats(msg.from_user.id)
+    if not chats:
+        await safe_reply(
+            msg,
+            "*Your registered chats:*\nNone yet.\n\n"
+            "Use `/addchat @channelusername` to add channels or groups you own/admin.\n"
+            "The assistant will know about them when people ask.",
+            parse_mode="Markdown",
+        )
+        return
+    lines = [f"*Your chats ({len(chats)}):*"]
+    for c in chats:
+        role = "admin" if c["is_admin"] else "member"
+        uname = f" (@{c['chat_username']})" if c.get("chat_username") else ""
+        lines.append(f"- {c['chat_title']}{uname} — {c['chat_type']} ({role})")
+    lines.append("\nUse `/addchat` to add more, `/removechat` to remove.")
+    await safe_reply(msg, "\n".join(lines), parse_mode="Markdown")
+
+
+async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Auto-track when the bot is added to or removed from a group/channel."""
+    member_update = update.my_chat_member
+    if not member_update:
+        return
+    chat = member_update.chat
+    new_status = member_update.new_chat_member.status
+    old_status = member_update.old_chat_member.status
+    owner_id = load_config().OWNER_ID
+    if not owner_id:
+        return
+    cid = chat.id
+    title = chat.title or chat.effective_name or str(cid)
+    ctype = chat.type
+    uname = chat.username or ""
+    is_admin = new_status in ("administrator", "creator")
+    if new_status in ("administrator", "creator", "member"):
+        add_user_chat(owner_id, cid, title, ctype, uname, is_admin)
+        logger.info(f"Bot added to {title} ({ctype}) — admin={is_admin}")
+    elif new_status in ("left", "kicked", "restricted") and old_status not in (new_status,):
+        remove_user_chat(owner_id, cid)
+        logger.info(f"Bot removed from {title} ({ctype})")
+
+
 async def on_telegram_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Catch-all for unhandled exceptions in any handler.
 
@@ -1722,6 +1873,11 @@ def register_handlers(app):
     app.add_handler(CommandHandler("blacklist",   cmd_blacklist))
     app.add_handler(CommandHandler("unblacklist", cmd_unblacklist))
     app.add_handler(CommandHandler("broadcast",   cmd_broadcast))
+    app.add_handler(CommandHandler("addchat",     cmd_addchat))
+    app.add_handler(CommandHandler("removechat",  cmd_removechat))
+    app.add_handler(CommandHandler("mychats",     cmd_mychats))
+
+    app.add_handler(ChatMemberHandler(handle_my_chat_member))
 
     app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGE, handle_business_message))
     app.add_handler(MessageHandler((filters.TEXT | filters.Document.ALL) & ~filters.COMMAND, handle_message))

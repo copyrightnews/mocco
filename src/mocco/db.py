@@ -96,6 +96,18 @@ def init_db():
                     updated_at TIMESTAMP DEFAULT NOW()
                 );
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_chats (
+                    owner_id    BIGINT NOT NULL,
+                    chat_id     BIGINT NOT NULL,
+                    chat_title  TEXT,
+                    chat_type   TEXT,
+                    chat_username TEXT,
+                    is_admin    BOOLEAN DEFAULT FALSE,
+                    added_at    TIMESTAMP DEFAULT NOW(),
+                    PRIMARY KEY (owner_id, chat_id)
+                );
+            """)
             try:
                 cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_model TEXT")
             except Exception:
@@ -498,3 +510,69 @@ def increment_daily_token_usage(user_id: int, tokens: int) -> None:
                 conn.commit()
     except Exception as e:
         logger.error(f"increment_daily_token_usage failed: {e}")
+
+
+# ── User Chats (Channels/Groups owned by the user) ─────────────────────────
+
+
+def add_user_chat(owner_id: int, chat_id: int, chat_title: str,
+                  chat_type: str, chat_username: str = "", is_admin: bool = False) -> bool:
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO user_chats (owner_id, chat_id, chat_title, chat_type, chat_username, is_admin)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (owner_id, chat_id) DO UPDATE
+                    SET chat_title = EXCLUDED.chat_title,
+                        chat_username = EXCLUDED.chat_username,
+                        is_admin = EXCLUDED.is_admin
+                """, (owner_id, chat_id, chat_title, chat_type, chat_username, is_admin))
+                conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"add_user_chat failed: {e}")
+        return False
+
+
+def remove_user_chat(owner_id: int, chat_id: int) -> bool:
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM user_chats WHERE owner_id = %s AND chat_id = %s",
+                    (owner_id, chat_id),
+                )
+                conn.commit()
+                return cur.rowcount > 0
+    except Exception as e:
+        logger.error(f"remove_user_chat failed: {e}")
+        return False
+
+
+def get_user_chats(owner_id: int) -> list:
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT chat_id, chat_title, chat_type, chat_username, is_admin, added_at "
+                    "FROM user_chats WHERE owner_id = %s ORDER BY added_at DESC",
+                    (owner_id,),
+                )
+                return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"get_user_chats failed: {e}")
+        return []
+
+
+def get_user_chats_context(owner_id: int) -> str:
+    """Return a formatted summary of the user's registered chats for the assistant prompt."""
+    chats = get_user_chats(owner_id)
+    if not chats:
+        return ""
+    lines = ["## Account owner's chats:"]
+    for c in chats:
+        role = "admin" if c["is_admin"] else "member"
+        uname = f" (@{c['chat_username']})" if c.get("chat_username") else ""
+        lines.append(f"- {c['chat_title']}{uname} — {c['chat_type']} ({role})")
+    return "\n".join(lines)
