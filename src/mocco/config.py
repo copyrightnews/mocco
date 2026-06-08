@@ -75,15 +75,15 @@ def load_config() -> Config:
         quota = 5000
 
     return Config(
-        TELEGRAM_TOKEN=os.environ["TELEGRAM_TOKEN"],
-        DATABASE_URL=os.environ["DATABASE_URL"],
-        OPENROUTER_API_KEY=os.environ.get("OPENROUTER_API_KEY", ""),
-        SERPER_API_KEY=os.environ.get("SERPER_API_KEY", ""),
-        ENCRYPTION_KEY=os.environ.get("ENCRYPTION_KEY", ""),
+        TELEGRAM_TOKEN=os.environ["TELEGRAM_TOKEN"].strip(),
+        DATABASE_URL=os.environ["DATABASE_URL"].strip(),
+        OPENROUTER_API_KEY=os.environ.get("OPENROUTER_API_KEY", "").strip(),
+        SERPER_API_KEY=os.environ.get("SERPER_API_KEY", "").strip(),
+        ENCRYPTION_KEY=os.environ.get("ENCRYPTION_KEY", "").strip(),
         OWNER_ID=owner,
         BOT_ID=bot,
-        CHAT_MODEL=os.environ.get("CHAT_MODEL", DEFAULT_CHAT_MODEL),
-        LOG_LEVEL=os.environ.get("LOG_LEVEL", "INFO"),
+        CHAT_MODEL=os.environ.get("CHAT_MODEL", DEFAULT_CHAT_MODEL).strip(),
+        LOG_LEVEL=os.environ.get("LOG_LEVEL", "INFO").strip(),
         DAILY_FALLBACK_QUOTA=quota,
     )
 

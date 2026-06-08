@@ -242,7 +242,17 @@ async def process_business_assistant(update, context, msg, business_connection_i
     When the bot is connected via Settings > Chat Automation, people who 
     message the user's Telegram account get an AI response here.
     """
-    if not msg or not msg.text:
+    if not msg:
+        return
+    if not msg.text:
+        try:
+            await context.bot.send_message(
+                chat_id=msg.chat_id,
+                text="I can only process text messages right now.",
+                business_connection_id=business_connection_id,
+            )
+        except TelegramError:
+            pass
         return
     user = msg.from_user
     if not user or user.is_bot:
@@ -546,7 +556,9 @@ async def process_message(update, context, msg, business_connection_id=None):
     typing_task = asyncio.create_task(_keep_typing())
 
     try:
-        reply, error_kind, error_msg = await asyncio.to_thread(get_ai_reply, user_id, user_msg)
+        reply, error_kind, error_msg = await asyncio.wait_for(
+            asyncio.to_thread(get_ai_reply, user_id, user_msg), timeout=120.0,
+        )
         if reply is None:
             if error_kind == "rate_limited":
                 text = (
@@ -579,8 +591,6 @@ async def process_message(update, context, msg, business_connection_id=None):
                     "This is likely a temporary issue — please try again in a few seconds."
                 )
             logger.info(f"AI failure for user {user_id} (model={resolve_model(user_id)}): {error_kind} — {error_msg}")
-            thinking_alive = False
-            typing_task.cancel()
             if thinking_msg:
                 try:
                     await thinking_msg.edit_text(text, parse_mode="Markdown")
@@ -600,8 +610,6 @@ async def process_message(update, context, msg, business_connection_id=None):
 
         save_message(user_id, "user", user_msg)
         save_message(user_id, "assistant", reply)
-        thinking_alive = False
-        typing_task.cancel()
         if thinking_msg:
             try:
                 if len(reply) > 4096:
@@ -624,8 +632,6 @@ async def process_message(update, context, msg, business_connection_id=None):
                 bot=context.bot,
             )
     except NoAPIKeyError as e:
-        thinking_alive = False
-        typing_task.cancel()
         logger.warning(f"No API key available for user {user_id}: {e}")
         text = (
             "*No API key is configured for chatting.*\n\n"
@@ -643,8 +649,6 @@ async def process_message(update, context, msg, business_connection_id=None):
             await safe_reply(msg, text, parse_mode="Markdown",
                              business_connection_id=business_connection_id, bot=context.bot)
     except Exception as e:
-        thinking_alive = False
-        typing_task.cancel()
         logger.exception(f"process_message error: {e}")
         text = "Something went wrong on my end.\nPlease try sending your message again."
         if thinking_msg:
@@ -656,6 +660,9 @@ async def process_message(update, context, msg, business_connection_id=None):
         else:
             await safe_reply(msg, text,
                              business_connection_id=business_connection_id, bot=context.bot)
+    finally:
+        thinking_alive = False
+        typing_task.cancel()
 
 
 async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -669,7 +676,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not msg:
         return
     user = msg.from_user
-    if user and msg.text and not msg.text.startswith("/"):
+    if user and msg.text:
         text_stripped = msg.text.strip()
 
         pending_provider = _pending_get(user.id)
@@ -701,9 +708,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Verifying your {p['label']} key live against {p['label']}...",
                 parse_mode="Markdown",
             )
+            PENDING_KEY.pop(user.id, None)
             result = await asyncio.to_thread(verify_key, pending_provider, key)
             if result != VERIFY_OK:
-                PENDING_KEY.pop(user.id, None)
                 if result == VERIFY_TRANSIENT:
                     await safe_reply(
                         msg,
@@ -723,7 +730,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             ok = await _save_user_key(user.id, pending_provider, key)
-            PENDING_KEY.pop(user.id, None)
             if ok:
                 routing_note = (
                     f"\n\n_Models prefixed with `{p['direct_route_prefix']}` will now be routed "
@@ -1336,7 +1342,7 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if db_is_blacklisted(user_id):
         return
 
-    current = get_chat_model(user_id) or resolve_model()
+    current = get_chat_model(user_id) or resolve_model(user_id)
     default = load_config().CHAT_MODEL
     has_key = user_has_key(user_id)
     connected = user_connected_providers(user_id)
@@ -1486,7 +1492,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "open":
         models = await asyncio.to_thread(fetch_all_models, False, user_id)
-        current = get_chat_model(user_id) or resolve_model()
+        current = get_chat_model(user_id) or resolve_model(user_id)
         has_key = user_has_key(user_id)
         connected = user_connected_providers(user_id)
         if not models:
@@ -1527,7 +1533,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "refresh":
         models = await asyncio.to_thread(fetch_all_models, True, user_id)
-        current = get_chat_model(user_id) or resolve_model()
+        current = get_chat_model(user_id) or resolve_model(user_id)
         has_key = user_has_key(user_id)
         await safe_edit(query, reply_markup=_build_models_keyboard(models, 0, current, has_key))
         return
@@ -1545,7 +1551,7 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "page":
         page = int(data[2]) if len(data) > 2 else 0
         models = await asyncio.to_thread(fetch_all_models, False, user_id)
-        current = get_chat_model(user_id) or resolve_model()
+        current = get_chat_model(user_id) or resolve_model(user_id)
         has_key = user_has_key(user_id)
         if not models:
             return
@@ -1785,6 +1791,8 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
     ctype = chat.type
     uname = chat.username or ""
     is_admin = new_status in ("administrator", "creator")
+    if new_status == old_status:
+        return
     if new_status in ("administrator", "creator", "member"):
         add_user_chat(owner_id, cid, title, ctype, uname, is_admin)
         logger.info(f"Owner added bot to {title} ({ctype}) — admin={is_admin}")

@@ -260,8 +260,8 @@ def fetch_all_models(force: bool = False, user_id: Optional[int] = None) -> List
             pricing = m.get("pricing", {}) or {}
             is_free = (
                 mid.endswith(":free")
-                or pricing.get("prompt", "0") in ("0", "0.0", 0, "0.0", None)
-                and pricing.get("completion", "0") in ("0", "0.0", 0, "0.0", None)
+                or pricing.get("prompt", "0") in ("0", "0.0", 0, None)
+                and pricing.get("completion", "0") in ("0", "0.0", 0, None)
             )
             if is_free and mid in HIDDEN_FREE_IDS:
                 continue
@@ -579,6 +579,9 @@ def get_ai_reply(user_id: int, user_msg: str, assistant_mode: bool = False) -> T
     except InternalServerError as e:
         logger.warning(f"Server error on {model_id}: {e}")
         return None, "server", str(e)
+    except NoAPIKeyError as e:
+        logger.warning(f"No API key for user {user_id}: {e}")
+        return None, "auth", str(e)
     except Exception as e:
         logger.error(f"chat completion error ({model_id}): {e}")
         return None, "other", str(e)

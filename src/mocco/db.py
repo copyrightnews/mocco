@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 from typing import Optional, List, Tuple, Dict, Any
 from datetime import datetime, timezone, timedelta
 from psycopg2 import pool
@@ -11,6 +12,7 @@ logger = logging.getLogger("mocco")
 
 _config = None
 _pool: Optional[pool.ThreadedConnectionPool] = None
+_pool_lock = threading.Lock()
 
 def get_config():
     global _config
@@ -22,14 +24,16 @@ def get_pool() -> pool.ThreadedConnectionPool:
     """Create or return a ThreadedConnectionPool with RealDictCursor as default."""
     global _pool
     if _pool is None:
-        cfg = get_config()
-        _pool = pool.ThreadedConnectionPool(
-            minconn=1,
-            maxconn=10,
-            dsn=cfg.DATABASE_URL,
-            cursor_factory=RealDictCursor,
-        )
-        logger.info("DB connection pool created (1–10 connections)")
+        with _pool_lock:
+            if _pool is None:
+                cfg = get_config()
+                _pool = pool.ThreadedConnectionPool(
+                    minconn=1,
+                    maxconn=10,
+                    dsn=cfg.DATABASE_URL,
+                    cursor_factory=RealDictCursor,
+                )
+                logger.info("DB connection pool created (1–10 connections)")
     return _pool
 
 class db_conn:
@@ -44,6 +48,11 @@ class db_conn:
             if exc_type:
                 try:
                     self.conn.rollback()
+                except Exception:
+                    pass
+            else:
+                try:
+                    self.conn.commit()
                 except Exception:
                     pass
         finally:
@@ -117,6 +126,13 @@ def init_db():
             apply_migrations(conn, migrations_dir)
         except Exception as e:
             logger.exception(f"Migration runner failed (continuing without migrations): {e}")
+            logger.warning(
+                "Migrations failed — columns (gender, age, daily_tokens_used, etc.) "
+                "may be missing. get_user_profile / get_daily_token_usage will return "
+                "fallback values until migrations succeed."
+            )
+        else:
+            logger.info("Migrations applied successfully")
         conn.commit()
     logger.info("Database initialized")
 

@@ -1,10 +1,12 @@
 import os
+import threading
 import logging
 from cryptography.fernet import Fernet, InvalidToken
 
 logger = logging.getLogger("mocco")
 
 _KEY: bytes | None = None
+_KEY_LOCK = threading.Lock()
 
 
 class EncryptionKeyMissing(RuntimeError):
@@ -30,40 +32,50 @@ def _get_key() -> bytes:
     global _KEY
     if _KEY is not None:
         return _KEY
+    with _KEY_LOCK:
+        if _KEY is not None:
+            return _KEY
 
-    raw = os.environ.get("ENCRYPTION_KEY", "").strip()
-    if raw:
-        _KEY = raw.encode("utf-8")
-        return _KEY
+        raw = os.environ.get("ENCRYPTION_KEY", "").strip()
+        if raw:
+            try:
+                Fernet(raw.encode("utf-8"))
+            except Exception as exc:
+                raise ValueError(
+                    "ENCRYPTION_KEY env var is not a valid Fernet key. "
+                    "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                ) from exc
+            _KEY = raw.encode("utf-8")
+            return _KEY
 
-    from .db import get_bot_config, set_bot_config
+        from .db import get_bot_config, set_bot_config
 
-    stored = get_bot_config("encryption_key")
-    if stored:
-        _KEY = stored.encode("utf-8")
-        logger.info("Loaded ENCRYPTION_KEY from database (bot_config table)")
-        return _KEY
+        stored = get_bot_config("encryption_key")
+        if stored:
+            _KEY = stored.encode("utf-8")
+            logger.info("Loaded ENCRYPTION_KEY from database (bot_config table)")
+            return _KEY
 
-    new_key = Fernet.generate_key().decode("ascii")
-    if set_bot_config("encryption_key", new_key):
-        _KEY = new_key.encode("utf-8")
-        logger.warning("=" * 70)
-        logger.warning(
-            "ENCRYPTION_KEY was not in env and not in DB — auto-generated one and"
+        new_key = Fernet.generate_key().decode("ascii")
+        if set_bot_config("encryption_key", new_key):
+            _KEY = new_key.encode("utf-8")
+            logger.warning("=" * 70)
+            logger.warning(
+                "ENCRYPTION_KEY was not in env and not in DB — auto-generated one and"
+            )
+            logger.warning(
+                "stored it in bot_config. To make it stable across DB resets, set:"
+            )
+            logger.warning(f"  ENCRYPTION_KEY={new_key}")
+            logger.warning("=" * 70)
+            return _KEY
+
+        raise EncryptionKeyMissing(
+            "ENCRYPTION_KEY is not in env, the DB has no stored key, AND the auto-"
+            "generation write failed (DB unreachable?). Set ENCRYPTION_KEY env var"
+            " manually. Generate with: "
+            "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
         )
-        logger.warning(
-            "stored it in bot_config. To make it stable across DB resets, set:"
-        )
-        logger.warning(f"  ENCRYPTION_KEY={new_key}")
-        logger.warning("=" * 70)
-        return _KEY
-
-    raise EncryptionKeyMissing(
-        "ENCRYPTION_KEY is not in env, the DB has no stored key, AND the auto-"
-        "generation write failed (DB unreachable?). Set ENCRYPTION_KEY env var"
-        " manually. Generate with: "
-        "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
-    )
 
 
 def encrypt_api_key(plaintext: str) -> str:
