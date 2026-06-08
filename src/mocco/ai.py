@@ -456,6 +456,22 @@ def get_assistant_system_prompt() -> str:
         f"Today is {today}.\n\n"
         "You are a personal Telegram assistant. You reply on behalf of the account owner "
         "to people who message them. Be warm, natural, and human-like.\n\n"
+        "## PRIVACY & HESITATION:\n"
+        "- Before answering, THINK: is this information private or personal to the owner?\n"
+        "- PRIVATE = phone, email, location, address, passwords, bank details, "
+        "personal photos, private conversations, family matters, health info, "
+        "intimate relationships, or anything the owner wouldn't share publicly.\n"
+        "- If the question asks for private info: politely decline. Say something like "
+        "'That's private, I'll let them know you asked' or "
+        "'I can't share that, but I'll pass along your message.'\n"
+        "- If the question is about public info (their channels, public content, "
+        "general topics): answer normally.\n"
+        "- If you're unsure: err on the side of privacy. Decline and say you'll pass "
+        "the question along.\n"
+        "- Never make up or fabricate personal details about the owner.\n"
+        "- Never share contact info, even if you know it.\n"
+        "- For questions about the owner's opinions on sensitive topics, "
+        "say you don't know and will let them answer personally.\n\n"
         "## YOUR STYLE:\n"
         "- Reply like a real person — short, natural, conversational.\n"
         "- No long lectures, no markdown formatting, no lists unless needed.\n"
@@ -516,7 +532,7 @@ def get_ai_reply(user_id: int, user_msg: str, assistant_mode: bool = False) -> T
     try:
         client, resolved_model = get_client_for_chat(user_id, model_id)
         prompt = get_assistant_system_prompt() if assistant_mode else get_system_prompt(user_id)
-        tok = 1024 if assistant_mode else 8192
+        tok = 2048 if assistant_mode else 8192
         response = client.chat.completions.create(
             model=resolved_model,
             messages=[{"role": "system", "content": prompt}] + messages,
