@@ -1796,16 +1796,17 @@ async def cmd_mychats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Auto-track when the bot is added to or removed from a group/channel."""
+    """Auto-track when the OWNER adds the bot to a group/channel they manage."""
     member_update = update.my_chat_member
     if not member_update:
+        return
+    user = member_update.from_user
+    owner_id = load_config().OWNER_ID
+    if not owner_id or not user or user.id != owner_id:
         return
     chat = member_update.chat
     new_status = member_update.new_chat_member.status
     old_status = member_update.old_chat_member.status
-    owner_id = load_config().OWNER_ID
-    if not owner_id:
-        return
     cid = chat.id
     title = chat.title or chat.effective_name or str(cid)
     ctype = chat.type
@@ -1813,10 +1814,10 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
     is_admin = new_status in ("administrator", "creator")
     if new_status in ("administrator", "creator", "member"):
         add_user_chat(owner_id, cid, title, ctype, uname, is_admin)
-        logger.info(f"Bot added to {title} ({ctype}) — admin={is_admin}")
+        logger.info(f"Owner added bot to {title} ({ctype}) — admin={is_admin}")
     elif new_status in ("left", "kicked", "restricted") and old_status not in (new_status,):
         remove_user_chat(owner_id, cid)
-        logger.info(f"Bot removed from {title} ({ctype})")
+        logger.info(f"Bot removed from {title} ({ctype}) by owner")
 
 
 async def on_telegram_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
